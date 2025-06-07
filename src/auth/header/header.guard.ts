@@ -12,9 +12,9 @@ export class HeaderGuard implements CanActivate {
 
     canActivate(context: ExecutionContext): boolean {
         const request = context.switchToHttp().getRequest();
-        const token = request.headers['authtoken']; // <-- lowercase, HTTP header
+        const token = request.headers['authToken'];
 
-        const expectedToken = this.configService.get<string>('AUTH_TOKEN');
+        const expectedToken = this.configService.get<string>('MAIL_PASS');
 
         if (!token || token !== expectedToken) {
             throw new UnauthorizedException('Invalid or missing auth token');
