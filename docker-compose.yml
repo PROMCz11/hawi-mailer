@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  nestjs-otp:
+    build: .
+    container_name: otp-email-service
+    restart: always
+    ports:
+      - "50500:3000"
