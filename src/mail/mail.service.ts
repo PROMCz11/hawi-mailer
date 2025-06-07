@@ -13,7 +13,7 @@ export class MailService {
 
     async sendOtp(to: string, otp: string) {
         const info = await this.transporter.sendMail({
-            from: `"Your App" <${process.env.GMAIL_USER}>`,
+            from: `"Hawi's email verification service" <${process.env.GMAIL_USER}>`,
             to,
             subject: 'Your OTP Code',
             text: `Your OTP code is: ${otp}`,
