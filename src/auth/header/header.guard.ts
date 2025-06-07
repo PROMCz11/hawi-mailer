@@ -12,7 +12,7 @@ export class HeaderGuard implements CanActivate {
 
     canActivate(context: ExecutionContext): boolean {
         const request = context.switchToHttp().getRequest();
-        const token = request.headers['authToken'];
+        const token = request.headers['authtoken'];
 
         const expectedToken = this.configService.get<string>('MAIL_PASS');
 
