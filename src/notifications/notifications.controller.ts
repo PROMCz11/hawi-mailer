@@ -8,9 +8,9 @@ export class NotificationsController {
 
     @Post('send')
     @UseGuards(HeaderGuard)
-    async send(@Body() body: { token: string; title: string; body: string; data?: Record<string, string> }) {
-        const { token, title, body: messageBody, data } = body;
-        const result = await this.firebaseService.sendNotification(token, title, messageBody, data);
+    async send(@Body() body: { tokens: string[]; title: string; body: string; data?: Record<string, string> }) {
+        const { tokens, title, body: messageBody, data } = body;
+        const result = await this.firebaseService.sendNotification(tokens, title, messageBody, data);
         return { success: true, result };
     }
 }

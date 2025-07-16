@@ -1,41 +1,49 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import * as admin from 'firebase-admin';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging, Messaging, MulticastMessage } from 'firebase-admin/messaging';
 
 @Injectable()
 export class FirebaseService implements OnModuleInit {
-    private messaging: admin.messaging.Messaging;
+    private messaging: Messaging;
 
     onModuleInit() {
         const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-
         if (!raw) {
-            throw new Error('FIREBASE_SERVICE_ACCOUNT env variable is missing');
+            throw new Error('FIREBASE_SERVICE_ACCOUNT is missing');
         }
-        
-        // const serviceAccount = JSON.parse(raw.replace(/\\n/g, '\n'));
+
         const serviceAccount = JSON.parse(raw);
 
-        if (!admin.apps.length) {
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
+        if (!getApps().length) {
+            initializeApp({
+                credential: cert(serviceAccount as any),
             });
         }
 
-        this.messaging = admin.messaging();
+        this.messaging = getMessaging();
     }
 
-    async sendNotification(token: string, title: string, body: string, data: Record<string, string> = {}) {
-        try {
-            const message = {
-                token,
-                notification: { title, body },
-                data,
-            };
-
-            return await this.messaging.send(message);
-        } catch (err) {
-            console.error('Failed to send FCM push:', err);
-            throw err;
+    async sendNotification(
+        tokens: string[],
+        title: string,
+        body: string,
+        data: Record<string, string> = {}
+    ) {
+        if (!tokens || tokens.length === 0) {
+            throw new Error('No FCM tokens provided');
         }
+
+        const message: MulticastMessage = {
+            tokens,
+            notification: { title, body },
+            data,
+        };
+
+        const response = await this.messaging.sendEachForMulticast(message);
+
+        return {
+            successCount: response.successCount,
+            failureCount: response.failureCount
+        };
     }
 }
