@@ -23,6 +23,14 @@ export class FirebaseService implements OnModuleInit {
         this.messaging = getMessaging();
     }
 
+    private chunkTokens(tokens: string[], chunkSize: number = 500): string[][] {
+        const chunks: string[][] = [];
+        for (let i = 0; i < tokens.length; i += chunkSize) {
+            chunks.push(tokens.slice(i, i + chunkSize));
+        }
+        return chunks;
+    }
+
     async sendNotification(
         tokens: string[],
         title: string,
@@ -33,17 +41,27 @@ export class FirebaseService implements OnModuleInit {
             throw new Error('No FCM tokens provided');
         }
 
-        const message: MulticastMessage = {
-            tokens,
-            notification: { title, body },
-            data,
-        };
+        const tokenChunks = this.chunkTokens(tokens, 500);
 
-        const response = await this.messaging.sendEachForMulticast(message);
+        let totalSuccess = 0;
+        let totalFailure = 0;
+
+        for (const chunk of tokenChunks) {
+            const message: MulticastMessage = {
+                tokens: chunk,
+                notification: { title, body },
+                data,
+            };
+
+            const response = await this.messaging.sendEachForMulticast(message);
+
+            totalSuccess += response.successCount;
+            totalFailure += response.failureCount;
+        }
 
         return {
-            successCount: response.successCount,
-            failureCount: response.failureCount
+            successCount: totalSuccess,
+            failureCount: totalFailure
         };
     }
 }
