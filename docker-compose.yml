@@ -9,3 +9,5 @@ services:
       - "50500:3000"
     env_file:
       - .env
+    volumes:
+    - ./uploads:/app/uploads
