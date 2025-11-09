@@ -35,11 +35,11 @@ if (!existsSync(rootUploadPath)) {
             }),
             limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
             fileFilter: (req, file, cb) => {
-                const allowed = ['image/jpeg', 'image/png', 'image/svg+xml'];
+                const allowed = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'];
                 if (allowed.includes(file.mimetype)) {
                     cb(null, true);
                 } else {
-                    cb(new Error('Only JPG, PNG, and SVG files are allowed'), false);
+                    cb(new Error('Only JPG, PNG, SVG, and WEBP files are allowed'), false);
                 }
             },
         }),
