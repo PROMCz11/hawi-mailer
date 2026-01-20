@@ -1,0 +1,525 @@
+/src/app.controller.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+describe('AppController', () => {
+  let appController: AppController;
+
+  beforeEach(async () => {
+    const app: TestingModule = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile();
+
+    appController = app.get<AppController>(AppController);
+  });
+
+  describe('root', () => {
+    it('should return "Hello World!"', () => {
+      expect(appController.getHello()).toBe('Hello World!');
+    });
+  });
+});
+
+
+/src/app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { MailService } from './mail/mail.service';
+import { OtpController } from './otp/otp.controller';
+import { FirebaseModule } from './firebase/firebase-module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { ImgModule } from './img/img.module';
+
+@Module({
+    imports: [ConfigModule.forRoot(), FirebaseModule, NotificationsModule, ImgModule],
+    providers: [MailService],
+    controllers: [OtpController],
+})
+export class AppModule {}
+
+
+/src/app.service.ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {
+  getHello(): string {
+    return 'Hello World!';
+  }
+}
+
+
+/src/auth/header/header.guard.spec.ts
+import { HeaderGuard } from './header.guard';
+
+describe('HeaderGuard', () => {
+  it('should be defined', () => {
+    expect(new HeaderGuard()).toBeDefined();
+  });
+});
+
+
+/src/auth/header/header.guard.ts
+import {
+    CanActivate,
+    ExecutionContext,
+    Injectable,
+    UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class HeaderGuard implements CanActivate {
+    constructor(private configService: ConfigService) {}
+
+    canActivate(context: ExecutionContext): boolean {
+        const request = context.switchToHttp().getRequest();
+        const token = request.headers['authtoken'];
+
+        const expectedToken = this.configService.get<string>('MAIL_PASS');
+
+        if (!token || token !== expectedToken) {
+            throw new UnauthorizedException('Invalid or missing auth token');
+        }
+
+        return true;
+    }
+}
+
+/src/firebase/firebase-module.ts
+import { Module } from '@nestjs/common';
+import { FirebaseService } from './firebase.service';
+
+@Module({
+    providers: [FirebaseService],
+    exports: [FirebaseService],
+})
+export class FirebaseModule {}
+
+/src/firebase/firebase.service.ts
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging, Messaging, MulticastMessage } from 'firebase-admin/messaging';
+
+@Injectable()
+export class FirebaseService implements OnModuleInit {
+    private messaging: Messaging;
+
+    onModuleInit() {
+        const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+        if (!raw) {
+            throw new Error('FIREBASE_SERVICE_ACCOUNT is missing');
+        }
+
+        const serviceAccount = JSON.parse(raw);
+
+        if (!getApps().length) {
+            initializeApp({
+                credential: cert(serviceAccount as any),
+            });
+        }
+
+        this.messaging = getMessaging();
+    }
+
+    private chunkTokens(tokens: string[], chunkSize: number = 500): string[][] {
+        const chunks: string[][] = [];
+        for (let i = 0; i < tokens.length; i += chunkSize) {
+            chunks.push(tokens.slice(i, i + chunkSize));
+        }
+        return chunks;
+    }
+
+    async sendNotification(
+        tokens: string[],
+        title: string,
+        body: string,
+        data: Record<string, string> = {}
+    ) {
+        if (!tokens || tokens.length === 0) {
+            throw new Error('No FCM tokens provided');
+        }
+
+        const tokenChunks = this.chunkTokens(tokens, 500);
+
+        let totalSuccess = 0;
+        let totalFailure = 0;
+
+        for (const chunk of tokenChunks) {
+            const message: MulticastMessage = {
+                tokens: chunk,
+                notification: { title, body },
+                data,
+            };
+
+            const response = await this.messaging.sendEachForMulticast(message);
+
+            totalSuccess += response.successCount;
+            totalFailure += response.failureCount;
+        }
+
+        return {
+            successCount: totalSuccess,
+            failureCount: totalFailure
+        };
+    }
+}
+
+/src/img/img.controller.ts
+import {
+    Controller,
+    Post,
+    UploadedFile,
+    UseInterceptors,
+    UseGuards,
+    Param,
+    Get,
+    Res,
+    Query,
+    BadRequestException,
+    Req,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ImgService } from './img.service';
+import { HeaderGuard } from 'src/auth/header/header.guard';
+import { Request, Response } from 'express';
+import { join, resolve, sep } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+
+@Controller('img')
+@UseGuards(HeaderGuard)
+export class ImgController {
+    constructor(private readonly imgService: ImgService) {}
+
+    @Post('*')
+    @UseInterceptors(FileInterceptor('file'))
+    async uploadImage(
+        @UploadedFile() file: Express.Multer.File,
+        @Req() req: Request
+    ) {
+        if (!file) throw new BadRequestException('No file uploaded');
+
+        let pathAfterImg = req.path.replace(/^\/?img\/?/, '').trim();
+
+        if (!pathAfterImg) pathAfterImg = 'general';
+
+        const rootUploadPath = join(__dirname, '..', '..', 'uploads');
+        const safeUploadPath = resolve(join(rootUploadPath, pathAfterImg));
+
+        if (!safeUploadPath.startsWith(rootUploadPath + sep)) {
+            throw new BadRequestException('Invalid upload path');
+        }
+
+        if (!existsSync(safeUploadPath)) {
+            mkdirSync(safeUploadPath, { recursive: true });
+        }
+
+        const { originalname, path: tempPath } = file;
+        const extension = originalname.split('.').pop();
+        const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.${extension}`;
+        const destinationPath = join(safeUploadPath, filename);
+
+        const fs = await import('fs/promises'); 
+        await fs.rename(tempPath, destinationPath);
+
+        const publicUrl = `/img/${pathAfterImg}/${filename}`;
+        return { url: publicUrl };
+    }
+
+    @Get('*')
+    async getImageByPath(@Req() req: Request, @Res() res: Response) {
+        const pathAfterImg = decodeURIComponent(req.path.replace(/^\/img\//, ''));
+        const rootUploadPath = join(__dirname, '..', '..', 'uploads');
+
+        const requestedPath = resolve(join(rootUploadPath, pathAfterImg));
+
+        if (!requestedPath.startsWith(rootUploadPath + sep)) {
+            throw new BadRequestException('Invalid image path');
+        }
+
+        if (!existsSync(requestedPath)) {
+            throw new BadRequestException('File not found');
+        }
+
+        return res.sendFile(requestedPath);
+    }
+}
+
+/src/img/img.module.ts
+import { Module } from '@nestjs/common';
+import { MulterModule } from '@nestjs/platform-express';
+import { ImgController } from './img.controller';
+import { ImgService } from './img.service';
+import { diskStorage } from 'multer';
+import { join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+import { ConfigModule } from '@nestjs/config';
+
+const rootUploadPath = join(__dirname, '..', '..', 'uploads');
+
+if (!existsSync(rootUploadPath)) {
+    mkdirSync(rootUploadPath, { recursive: true });
+}
+
+@Module({
+    imports: [
+        MulterModule.register({
+            storage: diskStorage({
+                destination: (req, file, cb) => {
+                    const subFolder = (req.query.subfolder as string) || 'general';
+                    const uploadPath = join(rootUploadPath, subFolder);
+
+                    if (!existsSync(uploadPath)) {
+                        mkdirSync(uploadPath, { recursive: true });
+                    }
+
+                    cb(null, uploadPath);
+                },
+                filename: (req, file, cb) => {
+                    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+                    const ext = file.originalname.split('.').pop();
+                    cb(null, `${uniqueSuffix}.${ext}`);
+                },
+            }),
+            limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+            fileFilter: (req, file, cb) => {
+                const allowed = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'];
+                if (allowed.includes(file.mimetype)) {
+                    cb(null, true);
+                } else {
+                    cb(new Error('Only JPG, PNG, SVG, and WEBP files are allowed'), false);
+                }
+            },
+        }),
+      ConfigModule
+    ],
+    controllers: [ImgController],
+    providers: [ImgService],
+})
+export class ImgModule {}
+
+/src/img/img.service.ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class ImgService {
+    // I will probably expand on this later
+}
+
+/src/mail/mail.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { MailService } from './mail.service';
+
+describe('MailService', () => {
+  let service: MailService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [MailService],
+    }).compile();
+
+    service = module.get<MailService>(MailService);
+  });
+
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+});
+
+
+/src/mail/mail.service.ts
+import { Injectable } from '@nestjs/common';
+import * as nodemailer from 'nodemailer';
+
+@Injectable()
+export class MailService {
+    private transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.GMAIL_USER,
+            pass: process.env.GMAIL_PASS,
+        },
+    });
+
+    async sendOtp(to: string, otp: string) {
+        const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Verification Code</title>
+            <style>
+                body {
+                    font-family: Cairo, sans-serif;
+                    background-color: #006564;
+                    margin: 48px 48px 24px;
+                    padding: 0;
+                    text-align: center;
+                }
+                .container {
+                    max-width: 550px;
+                    margin: 0 auto;
+                    padding: 24px 16px 32px;
+                    background-color: #F8FAFC;
+                    border-radius: 16px;
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+                    text-align: center;
+                }
+                .header {
+                    color: #333333;
+                    font-size: 24px;
+                    font-weight: bold;
+                    margin-bottom: 16px;
+                }
+                .greeting {
+                    color: #333333;
+                    font-size: 14px;
+                    margin-bottom: 16px;
+                }
+                .code-container {
+                    background-color: #EAEEF5;
+                    border: 1px solid #BCC2CD;
+                    border-radius: 6px;
+                    padding: 0px 16px;
+                    margin: 0 auto;
+                    display: inline-block;
+                    text-align: center;
+                }
+                .verification-code {
+                    color: #10606E;
+                    font-size: 64px;
+                    font-weight: bold;
+                    letter-spacing: 12px;
+                    padding-left: 8px;
+                    line-height: 120%;
+                    margin: 0 auto;
+                }
+                .footer {
+                    color: #FFFFFF;
+                    font-size: 14px;
+                    margin-top: 8px;
+                    padding: 8px 0;
+                }
+                .brand {
+                    font-weight: bold;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">رمز التأكيد</div>
+                <div class="greeting">مرحباً، رمز تفعيل حسابك هو:</div>
+                <div class="code-container">
+                    <div class="verification-code">${otp}</div>
+                </div>
+            </div>
+            <div class="footer">
+                <span class="brand">حاوي - HAWI</span>
+            </div>
+        </body>
+        </html>
+        `;
+
+        const info = await this.transporter.sendMail({
+            from: `"Hawi's email verification service" <${process.env.GMAIL_USER}>`,
+            to,
+            subject: 'رمز التأكيد - HAWI',
+            html: htmlContent,
+        });
+
+        return info;
+    }
+}
+
+/src/main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(process.env.PORT ?? 3000);
+}
+bootstrap();
+
+
+/src/notifications/notifications.controller.ts
+import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { FirebaseService } from '../firebase/firebase.service';
+import { HeaderGuard } from 'src/auth/header/header.guard';
+
+@Controller('notifications')
+export class NotificationsController {
+    constructor(private readonly firebaseService: FirebaseService) {}
+
+    @Post('send')
+    @UseGuards(HeaderGuard)
+    async send(@Body() body: { tokens: string[]; title: string; body: string; data?: Record<string, string> }) {
+        const { tokens, title, body: messageBody, data } = body;
+        const result = await this.firebaseService.sendNotification(tokens, title, messageBody, data);
+        return { success: true, result };
+    }
+}
+
+/src/notifications/notifications.module.ts
+import { Module } from '@nestjs/common';
+import { NotificationsController } from './notifications.controller';
+import { FirebaseService } from '../firebase/firebase.service';
+import { HeaderGuard } from 'src/auth/header/header.guard';
+import { ConfigModule } from '@nestjs/config';
+
+@Module({
+    imports: [ConfigModule],
+    controllers: [NotificationsController],
+    providers: [FirebaseService, HeaderGuard],
+})
+export class NotificationsModule {}
+
+/src/otp/otp.controller.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { OtpController } from './otp.controller';
+
+describe('OtpController', () => {
+  let controller: OtpController;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [OtpController],
+    }).compile();
+
+    controller = module.get<OtpController>(OtpController);
+  });
+
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+});
+
+
+/src/otp/otp.controller.ts
+import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { MailService } from '../mail/mail.service';
+import { HeaderGuard } from 'src/auth/header/header.guard';
+
+@Controller('otp')
+export class OtpController {
+    constructor(private readonly mailService: MailService) {}
+
+    @Post('send')
+    @UseGuards(HeaderGuard)
+    async sendOtp(@Body() body: { email: string }) {
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        const info = await this.mailService.sendOtp(body.email, otp);
+
+        return {
+            success: true,
+            messageId: info.messageId,
+            otp
+        };
+    }
+}
+
+
