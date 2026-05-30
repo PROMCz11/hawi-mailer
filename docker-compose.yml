@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
-  nestjs-otp:
+  hawi-mailer:
     build: .
-    container_name: otp-email-service
+    container_name: mailer
     restart: always
     ports:
-      - "50500:3000"
+      - "127.0.0.1:48291:3000"
     env_file:
       - .env
     volumes:
-    - ./uploads:/app/uploads
+      - ./uploads:/app/uploads
