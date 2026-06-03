@@ -11,6 +11,6 @@ export class NotificationsController {
     async send(@Body() body: { tokens: string[]; title: string; body: string; data?: Record<string, string> }) {
         const { tokens, title, body: messageBody, data } = body;
         const result = await this.firebaseService.sendNotification(tokens, title, messageBody, data);
-        return { success: true, result };
+        return { result };
     }
 }

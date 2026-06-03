@@ -1,48 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { InjectBot } from 'nestjs-telegraf';
+import { Telegraf } from 'telegraf';
 
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
-  private readonly botToken: string | undefined;
-  private readonly chatId: string | undefined;
 
-  constructor(private configService: ConfigService) {
-    this.botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
-    this.chatId = this.configService.get<string>('TELEGRAM_CHAT_ID');
-  }
+  constructor(@InjectBot() private readonly bot: Telegraf) {}
 
-  async sendMessage(message: string): Promise<boolean> {
-    if (!this.botToken || !this.chatId) {
-      this.logger.error('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured in environment variables.');
-      return false;
-    }
-
-    const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
+  async sendMessage(message: string, chatId: string | number): Promise<boolean> {
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          chat_id: this.chatId,
-          text: message,
-          parse_mode: 'Markdown',
-        }),
+      await this.bot.telegram.sendMessage(chatId, message, {
+        parse_mode: 'Markdown',
       });
-
-      const responseData = await response.json();
-
-      if (responseData.ok) {
-        this.logger.log(`Message sent successfully to chat ${this.chatId}`);
-        return true;
-      } else {
-        this.logger.error(`Failed to send message: ${responseData.description}`);
-        return false;
-      }
+      this.logger.log(`Message sent successfully to chat ${chatId}`);
+      return true;
     } catch (error) {
-      this.logger.error(`Error sending message: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error sending message: ${errorMessage}`);
       return false;
     }
   }

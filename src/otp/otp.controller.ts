@@ -14,7 +14,6 @@ export class OtpController {
         const info = await this.mailService.sendOtp(body.email, otp);
 
         return {
-            success: true,
             messageId: info.messageId,
             otp
         };
