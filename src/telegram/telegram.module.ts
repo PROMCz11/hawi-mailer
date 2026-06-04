@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
+import { LectureBotService } from './lecture-bot.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TelegrafModule } from 'nestjs-telegraf';
+
+const LocalSession = require('telegraf-session-local');
 
 @Module({
   imports: [
@@ -13,12 +16,15 @@ import { TelegrafModule } from 'nestjs-telegraf';
         if (!token) {
           throw new Error('TELEGRAM_BOT_TOKEN is not defined in environment variables');
         }
-        return { token };
+        return {
+          token,
+          middlewares: [new LocalSession({ database: 'bot-sessions.json' }).middleware()]
+        };
       },
       inject: [ConfigService],
     }),
   ],
-  providers: [TelegramService],
-  exports: [TelegramService],
+  providers: [TelegramService, LectureBotService],
+  exports: [TelegramService, LectureBotService],
 })
 export class TelegramModule {}

@@ -4,15 +4,29 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
 
 @Catch()
 export class JsendExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(JsendExceptionFilter.name);
+
   catch(exception: any, host: ArgumentsHost) {
+    // Ignore Telegraf contexts
+    if (host.getType() !== 'http') {
+      this.logger.error(`Non-HTTP Exception: ${exception?.message || exception}`);
+      return;
+    }
+
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    
+
+    if (!response || !response.status) {
+      this.logger.error(`HTTP Exception but no valid response object: ${exception?.message || exception}`);
+      return;
+    }
+
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
 

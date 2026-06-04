@@ -10,6 +10,11 @@ import { map } from 'rxjs/operators';
 @Injectable()
 export class JsendInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    // Ignore Telegraf contexts to prevent [object Object] spam
+    if (context.getType() !== 'http') {
+      return next.handle();
+    }
+    
     return next.handle().pipe(
       map((data) => ({
         status: true,

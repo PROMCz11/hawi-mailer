@@ -60,3 +60,6 @@ uploads
 
 # Unpublished files
 .unpublished
+
+# Lecture bot database
+bot-sessions.json
