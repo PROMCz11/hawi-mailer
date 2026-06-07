@@ -6,6 +6,7 @@ import { Mistral } from '@mistralai/mistralai';
 
 interface UserState {
   step?: string;
+  flow?: 'INSERT' | 'REPLACE';
   adminToken?: string;
   courses?: any[];
   selectedUniversity?: string;
@@ -139,7 +140,8 @@ export class LectureBotService implements OnModuleInit {
   async onModuleInit() {
     try {
       await this.bot.telegram.setMyCommands([
-        { command: 'start', description: 'بدء البوت أو إدراج محاضرة جديدة' }
+        { command: 'start', description: 'بدء البوت أو إدراج محاضرة جديدة' },
+        { command: 'replace', description: 'استبدال محتوى محاضرة موجودة' }
       ]);
       this.logger.log('Bot commands menu updated successfully.');
     } catch (err) {
@@ -152,6 +154,7 @@ export class LectureBotService implements OnModuleInit {
   async startCommand(@Ctx() ctx: MyContext) {
     if (!ctx.from) return;
     const session = ctx.session;
+    session.flow = 'INSERT';
     
     if (session.adminToken) {
       await ctx.reply('جاري التحقق من الجلسة الحالية...');
@@ -174,6 +177,39 @@ export class LectureBotService implements OnModuleInit {
     }
 
     clearSession(session);
+    session.flow = 'INSERT';
+    session.step = 'AUTH_USERNAME';
+    await ctx.reply('مرحباً! الرجاء إدخال اسم مستخدم المشرف للمصادقة.');
+  }
+
+  @Command('replace')
+  async replaceCommand(@Ctx() ctx: MyContext) {
+    if (!ctx.from) return;
+    const session = ctx.session;
+    session.flow = 'REPLACE';
+    
+    if (session.adminToken) {
+      await ctx.reply('جاري التحقق من الجلسة الحالية...');
+      try {
+        const coursesRes = await fetch(`${this.sveltekitUrl}/api/admin/courses`, {
+          headers: { 'Cookie': `admin_token=${session.adminToken}` }
+        });
+        const coursesJson = await coursesRes.json();
+        
+        if (coursesJson.status && coursesJson.data.courses) {
+          session.courses = coursesJson.data.courses;
+          session.step = 'SELECT_UNI';
+          const items = getItemsForListType(session, 'UNI');
+          await ctx.reply('مرحباً بعودتك! اختر الجامعة:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
+          return;
+        }
+      } catch (err) {
+        this.logger.warn('Existing token failed, prompting re-authentication.');
+      }
+    }
+
+    clearSession(session);
+    session.flow = 'REPLACE';
     session.step = 'AUTH_USERNAME';
     await ctx.reply('مرحباً! الرجاء إدخال اسم مستخدم المشرف للمصادقة.');
   }
@@ -184,10 +220,12 @@ export class LectureBotService implements OnModuleInit {
     const session = ctx.session;
     const token = session.adminToken;
     const courses = session.courses;
+    const flow = session.flow || 'INSERT';
     
     clearSession(session);
     session.adminToken = token;
     session.courses = courses;
+    session.flow = flow;
 
     if (session.adminToken && session.courses) {
       session.step = 'SELECT_UNI';
@@ -324,9 +362,11 @@ export class LectureBotService implements OnModuleInit {
       if (data === 'NAV_CANCEL') {
         const token = session.adminToken;
         const courses = session.courses;
+        const flow = session.flow || 'INSERT';
         clearSession(session);
         session.adminToken = token;
         session.courses = courses;
+        session.flow = flow;
         session.step = 'SELECT_UNI';
         
         const items = getItemsForListType(session, 'UNI');
@@ -337,7 +377,9 @@ export class LectureBotService implements OnModuleInit {
       }
 
       if (data === 'NAV_SIGNOUT') {
+        const flow = session.flow || 'INSERT';
         clearSession(session);
+        session.flow = flow;
         session.step = 'AUTH_USERNAME';
         await ctx.editMessageText('مرحباً! الرجاء إدخال اسم مستخدم المشرف للمصادقة.')
           .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
@@ -523,7 +565,8 @@ export class LectureBotService implements OnModuleInit {
 
       await ctx.reply('اكتملت المعالجة. جاري حفظ المحاضرة في قاعدة البيانات...');
 
-      const insertRes = await fetch(`${this.sveltekitUrl}/api/insert-lecture`, {
+      const endpoint = session.flow === 'REPLACE' ? '/api/replace-lecture' : '/api/insert-lecture';
+      const insertRes = await fetch(`${this.sveltekitUrl}${endpoint}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json'
@@ -542,7 +585,7 @@ export class LectureBotService implements OnModuleInit {
 
       const insertJson = await insertRes.json();
       if (insertJson.status) {
-        await ctx.reply('✅ تم إدراج المحاضرة بنجاح!');
+        await ctx.reply(session.flow === 'REPLACE' ? '✅ تم استبدال المحاضرة بنجاح!' : '✅ تم إدراج المحاضرة بنجاح!');
         
         session.step = 'SELECT_UNI';
         session.lectureName = undefined;
@@ -554,9 +597,9 @@ export class LectureBotService implements OnModuleInit {
         session.selectedUniversity = undefined;
         
         const items = getItemsForListType(session, 'UNI');
-        await ctx.reply('اختر الجامعة للمحاضرة التالية:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
+        await ctx.reply(session.flow === 'REPLACE' ? 'اختر الجامعة:' : 'اختر الجامعة للمحاضرة التالية:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
       } else {
-        await ctx.reply(`❌ فشل إدراج المحاضرة: ${insertJson.message || 'خطأ غير معروف'}`);
+        await ctx.reply(session.flow === 'REPLACE' ? `❌ فشل استبدال المحاضرة: ${insertJson.message || 'خطأ غير معروف'}` : `❌ فشل إدراج المحاضرة: ${insertJson.message || 'خطأ غير معروف'}`);
       }
     } catch (err) {
       this.logger.error(err);
