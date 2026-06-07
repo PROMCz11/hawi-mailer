@@ -1,3 +1,4 @@
+// src/telegram/lecture-bot.service.ts
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Ctx, Command, Action, On, Update, InjectBot } from 'nestjs-telegraf';
 import { Context, Markup, Telegraf } from 'telegraf';
@@ -9,6 +10,8 @@ interface UserState {
   flow?: 'INSERT' | 'REPLACE';
   adminToken?: string;
   courses?: any[];
+  courseLectures?: any[];
+  lectures?: any[];
   selectedUniversity?: string;
   selectedYear?: number;
   selectedSemester?: number;
@@ -34,23 +37,27 @@ function convertArabicNumeralsToEnglish(text: string): string {
   return result;
 }
 
+function getPrefix(flow?: 'INSERT' | 'REPLACE'): string {
+  return flow === 'REPLACE' ? '🔄 استبدال | ' : '➕ إضافة | ';
+}
+
 function getItemsForListType(session: UserState, listType: string): { text: string, callback: string }[] {
-  if (!session.courses) return [];
+  if (!session.courses && listType !== 'LECTURE' && listType !== 'PROF') return [];
   
   if (listType === 'UNI') {
-    const universities = [...new Set(session.courses.map(c => c.university))];
-    return universities.map(u => ({ text: u, callback: `UNI_${u}` }));
+    const universities = [...new Set(session.courses!.map(c => c.university))];
+    return universities.map((u, index) => ({ text: u, callback: `UNI_${index}` }));
   }
   if (listType === 'YEAR') {
-    const years = [...new Set(session.courses.filter(c => c.university === session.selectedUniversity).map(c => c.year))].sort();
+    const years = [...new Set(session.courses!.filter(c => c.university === session.selectedUniversity).map(c => c.year))].sort();
     return years.map(y => ({ text: String(y), callback: `YEAR_${y}` }));
   }
   if (listType === 'SEMESTER') {
-    const semesters = [...new Set(session.courses.filter(c => c.university === session.selectedUniversity && c.year === session.selectedYear).map(c => c.semester))].sort();
+    const semesters = [...new Set(session.courses!.filter(c => c.university === session.selectedUniversity && c.year === session.selectedYear).map(c => c.semester))].sort();
     return semesters.map(s => ({ text: s === 1 ? 'الفصل الأول' : 'الفصل الثاني', callback: `SEMESTER_${s}` }));
   }
   if (listType === 'COURSE') {
-    const courses = session.courses.filter(c => 
+    const courses = session.courses!.filter(c => 
       c.university === session.selectedUniversity && 
       c.year === session.selectedYear && 
       c.semester === session.selectedSemester
@@ -58,16 +65,24 @@ function getItemsForListType(session: UserState, listType: string): { text: stri
     return courses.map(c => ({ text: c.name, callback: `COURSE_${c.courseID}` }));
   }
   if (listType === 'PROF') {
-    const course = session.courses.find(c => c.courseID === session.selectedCourseID);
-    const professors = course?.professors || [];
-    const items = professors.map(p => ({ text: p, callback: `PROF_${p}` }));
-    items.push({ text: '➕ إضافة دكتور جديد', callback: 'PROF_ADD_NEW' });
+    const professors = [...new Set((session.courseLectures || []).map((l: any) => l.professor).filter(Boolean))];
+    const items = professors.map((p, index) => ({ text: p, callback: `PROF_${index}` }));
+    if (session.flow !== 'REPLACE') {
+      items.push({ text: '➕ إضافة دكتور جديد', callback: 'PROF_ADD_NEW' });
+    }
     return items;
+  }
+  if (listType === 'LECTURE') {
+    const lectures = session.lectures || [];
+    return lectures.map((l: any, index) => ({ 
+      text: `المحاضرة ${l.number}${l.name ? ' - ' + l.name : ''}`, 
+      callback: `LECTURE_${index}` 
+    }));
   }
   return [];
 }
 
-function buildPaginatedKeyboard(items: { text: string, callback: string }[], page: number, listType: string, step: string) {
+function buildPaginatedKeyboard(items: { text: string, callback: string }[], page: number, listType: string, step: string, flow?: 'INSERT' | 'REPLACE') {
   const totalPages = Math.ceil(items.length / ITEMS_PER_PAGE);
   const safePage = Math.max(0, Math.min(page, totalPages - 1));
   
@@ -90,6 +105,11 @@ function buildPaginatedKeyboard(items: { text: string, callback: string }[], pag
       pageNavRow.push(Markup.button.callback('➡️', `PAGE_${listType}_${safePage + 1}`));
     }
     rows.push(pageNavRow);
+  }
+  
+  if (step === 'SELECT_UNI' && flow) {
+    const toggleText = flow === 'INSERT' ? '🔄 التبديل إلى وضع الاستبدال' : '➕ التبديل إلى وضع الإضافة';
+    rows.push([Markup.button.callback(toggleText, 'TOGGLE_MODE')]);
   }
   
   const stepNavRow: any[] = [];
@@ -168,7 +188,8 @@ export class LectureBotService implements OnModuleInit {
           session.courses = coursesJson.data.courses;
           session.step = 'SELECT_UNI';
           const items = getItemsForListType(session, 'UNI');
-          await ctx.reply('مرحباً بعودتك! اختر الجامعة:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
+          const modeText = '➕ وضع الإضافة';
+          await ctx.reply(`مرحباً بعودتك!\n\n${modeText}\n\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', session.flow));
           return;
         }
       } catch (err) {
@@ -200,7 +221,8 @@ export class LectureBotService implements OnModuleInit {
           session.courses = coursesJson.data.courses;
           session.step = 'SELECT_UNI';
           const items = getItemsForListType(session, 'UNI');
-          await ctx.reply('مرحباً بعودتك! اختر الجامعة:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
+          const modeText = '🔄 وضع الاستبدال';
+          await ctx.reply(`مرحباً بعودتك!\n\n${modeText}\n\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', session.flow));
           return;
         }
       } catch (err) {
@@ -230,7 +252,8 @@ export class LectureBotService implements OnModuleInit {
     if (session.adminToken && session.courses) {
       session.step = 'SELECT_UNI';
       const items = getItemsForListType(session, 'UNI');
-      await ctx.reply('تم إلغاء العملية. تم إعادة تعيين التقدم. اختر الجامعة:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
+      const modeText = flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+      await ctx.reply(`تم إلغاء العملية. تم إعادة تعيين التقدم.\n\n${modeText}\n\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', flow));
     } else {
       await ctx.reply('تم إلغاء العملية.');
     }
@@ -260,15 +283,8 @@ export class LectureBotService implements OnModuleInit {
           body: JSON.stringify({ username: session.username, password })
         });
 
-        if (!authRes.ok) {
-          await ctx.reply('فشلت المصادقة. الرجاء المحاولة مرة أخرى باستخدام /start.');
-          clearSession(session);
-          return;
-        }
-
-        const authJson = await authRes.json();
-        if (!authJson.status) {
-          await ctx.reply('فشلت المصادقة. الرجاء المحاولة مرة أخرى باستخدام /start.');
+        if (!authRes.ok || !(await authRes.json()).status) {
+          await ctx.reply('فشلت المصادقة. الرجاء المحاولة مرة أخرى باستخدام /start أو /replace.');
           clearSession(session);
           return;
         }
@@ -286,7 +302,7 @@ export class LectureBotService implements OnModuleInit {
         }
 
         if (!adminToken) {
-          await ctx.reply('فشل الحصول على رمز المشرف. الرجاء المحاولة مرة أخرى باستخدام /start.');
+          await ctx.reply('فشل الحصول على رمز المشرف. الرجاء المحاولة مرة أخرى باستخدام /start أو /replace.');
           clearSession(session);
           return;
         }
@@ -299,21 +315,22 @@ export class LectureBotService implements OnModuleInit {
         const coursesJson = await coursesRes.json();
         
         if (!coursesJson.status || !coursesJson.data.courses) {
-          await ctx.reply('فشل تحميل المواد. الرجاء المحاولة مرة أخرى باستخدام /start.');
+          await ctx.reply('فشل تحميل المواد. الرجاء المحاولة مرة أخرى باستخدام /start أو /replace.');
           clearSession(session);
           return;
         }
 
         session.courses = coursesJson.data.courses;
-        
         session.step = 'SELECT_UNI';
         const items = getItemsForListType(session, 'UNI');
-        await ctx.reply('اختر الجامعة:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.reply(`${modeText}\n\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', session.flow));
 
       } else if (session.step === 'ENTER_NEW_PROFESSOR') {
         session.selectedProfessor = text;
-        session.step = 'ENTER_LECTURE_NAME';
-        await ctx.reply('أدخل اسم المحاضرة:', getTextStepKeyboard());
+        session.step = session.flow === 'REPLACE' ? 'ENTER_LECTURE_NUMBER' : 'ENTER_LECTURE_NAME';
+        const msg = session.flow === 'REPLACE' ? 'أدخل رقم المحاضرة:' : 'أدخل اسم المحاضرة:';
+        await ctx.reply(msg, getTextStepKeyboard());
       } else if (session.step === 'ENTER_LECTURE_NAME') {
         session.lectureName = text;
         session.step = 'ENTER_LECTURE_NUMBER';
@@ -331,7 +348,7 @@ export class LectureBotService implements OnModuleInit {
       }
     } catch (err) {
       this.logger.error(err);
-      await ctx.reply('حدث خطأ. الرجاء المحاولة مرة أخرى باستخدام /start.');
+      await ctx.reply('حدث خطأ. الرجاء المحاولة مرة أخرى باستخدام /start أو /replace.');
       clearSession(session);
     }
   }
@@ -341,12 +358,12 @@ export class LectureBotService implements OnModuleInit {
     if (!ctx.from) return;
     const session = ctx.session;
     if (!session || !session.step) {
-      await ctx.answerCbQuery('انتهت صلاحية الجلسة. الرجاء استخدام /start.');
+      await ctx.answerCbQuery('انتهت صلاحية الجلسة. الرجاء استخدام /start أو /replace.');
       return;
     }
 
     if (!session.courses && session.step !== 'AUTH_USERNAME' && session.step !== 'AUTH_PASSWORD') {
-      await ctx.answerCbQuery('بيانات الجلسة مفقودة. الرجاء استخدام /start.');
+      await ctx.answerCbQuery('بيانات الجلسة مفقودة. الرجاء استخدام /start أو /replace.');
       return;
     }
 
@@ -359,18 +376,39 @@ export class LectureBotService implements OnModuleInit {
         return;
       }
 
+      if (data === 'TOGGLE_MODE') {
+        session.flow = session.flow === 'INSERT' ? 'REPLACE' : 'INSERT';
+        const items = getItemsForListType(session, 'UNI');
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.editMessageText(`${modeText}\n\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', session.flow))
+          .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+        await ctx.answerCbQuery();
+        return;
+      }
+
       if (data === 'NAV_CANCEL') {
         const token = session.adminToken;
         const courses = session.courses;
         const flow = session.flow || 'INSERT';
+        const wasOnFirstStep = session.step === 'SELECT_UNI';
+        
         clearSession(session);
         session.adminToken = token;
         session.courses = courses;
         session.flow = flow;
-        session.step = 'SELECT_UNI';
         
+        if (wasOnFirstStep) {
+          delete session.step;
+          await ctx.editMessageText('تم إلغاء العملية. يمكنك البدء من جديد باستخدام /start أو /replace.')
+            .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+          await ctx.answerCbQuery();
+          return;
+        }
+        
+        session.step = 'SELECT_UNI';
         const items = getItemsForListType(session, 'UNI');
-        await ctx.editMessageText('تم إلغاء العملية. اختر الجامعة:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'))
+        const modeText = flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.editMessageText(`تم إلغاء العملية. تم إعادة تعيين التقدم.\n\n${modeText}\n\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', flow))
           .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         await ctx.answerCbQuery();
         return;
@@ -391,48 +429,67 @@ export class LectureBotService implements OnModuleInit {
         let items: { text: string, callback: string }[] = [];
         let title = '';
         let listType = '';
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
 
         if (session.step === 'SELECT_YEAR') {
           session.step = 'SELECT_UNI';
           items = getItemsForListType(session, 'UNI');
-          title = 'اختر الجامعة:';
+          title = `${modeText}\n\nاختر الجامعة:`;
           listType = 'UNI';
         } else if (session.step === 'SELECT_SEMESTER') {
           session.step = 'SELECT_YEAR';
           items = getItemsForListType(session, 'YEAR');
-          title = 'اختر السنة:';
+          title = `${modeText}\n\nاختر السنة:`;
           listType = 'YEAR';
         } else if (session.step === 'SELECT_COURSE') {
           session.step = 'SELECT_SEMESTER';
           items = getItemsForListType(session, 'SEMESTER');
-          title = 'اختر الفصل:';
+          title = `${modeText}\n\nاختر الفصل:`;
           listType = 'SEMESTER';
         } else if (session.step === 'SELECT_PROFESSOR') {
           session.step = 'SELECT_COURSE';
           items = getItemsForListType(session, 'COURSE');
-          title = 'اختر المادة:';
+          title = `${modeText}\n\nاختر المادة:`;
           listType = 'COURSE';
+        } else if (session.step === 'SELECT_LECTURE') {
+          session.step = 'SELECT_PROFESSOR';
+          items = getItemsForListType(session, 'PROF');
+          title = `${modeText}\n\nاختر الدكتور:`;
+          listType = 'PROF';
         } else if (session.step === 'ENTER_NEW_PROFESSOR' || session.step === 'ENTER_LECTURE_NAME') {
           session.step = 'SELECT_PROFESSOR';
           items = getItemsForListType(session, 'PROF');
-          title = 'اختر الدكتور:';
+          title = `${modeText}\n\nاختر الدكتور:`;
           listType = 'PROF';
         } else if (session.step === 'ENTER_LECTURE_NUMBER') {
-          session.step = 'ENTER_LECTURE_NAME';
-          await ctx.editMessageText('أدخل اسم المحاضرة:', getTextStepKeyboard())
-            .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
-          await ctx.answerCbQuery();
-          return;
+          if (session.flow === 'REPLACE') {
+            session.step = 'SELECT_LECTURE';
+            items = getItemsForListType(session, 'LECTURE');
+            title = '🔄 وضع الاستبدال\n\nاختر المحاضرة المراد استبدالها:';
+            listType = 'LECTURE';
+          } else {
+            session.step = 'ENTER_LECTURE_NAME';
+            await ctx.editMessageText('أدخل اسم المحاضرة:', getTextStepKeyboard())
+              .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+            await ctx.answerCbQuery();
+            return;
+          }
         } else if (session.step === 'UPLOAD_PDF') {
-          session.step = 'ENTER_LECTURE_NUMBER';
-          await ctx.editMessageText('أدخل رقم المحاضرة:', getTextStepKeyboard())
-            .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
-          await ctx.answerCbQuery();
-          return;
+          session.step = session.flow === 'REPLACE' ? 'SELECT_LECTURE' : 'ENTER_LECTURE_NUMBER';
+          if (session.flow === 'REPLACE') {
+            items = getItemsForListType(session, 'LECTURE');
+            title = '🔄 وضع الاستبدال\n\nاختر المحاضرة المراد استبدالها:';
+            listType = 'LECTURE';
+          } else {
+            await ctx.editMessageText('أدخل رقم المحاضرة:', getTextStepKeyboard())
+              .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+            await ctx.answerCbQuery();
+            return;
+          }
         }
 
         if (listType) {
-          await ctx.editMessageText(title, buildPaginatedKeyboard(items, 0, listType, session.step))
+          await ctx.editMessageText(title, buildPaginatedKeyboard(items, 0, listType, session.step, session.flow))
             .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         }
         await ctx.answerCbQuery();
@@ -444,14 +501,16 @@ export class LectureBotService implements OnModuleInit {
         const listType = parts[1];
         const page = parseInt(parts[2], 10);
         const items = getItemsForListType(session, listType);
-        const keyboard = buildPaginatedKeyboard(items, page, listType, session.step || '');
+        const keyboard = buildPaginatedKeyboard(items, page, listType, session.step || '', session.flow);
         
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
         const titles: Record<string, string> = {
-          'UNI': 'اختر الجامعة:',
-          'YEAR': 'اختر السنة:',
-          'SEMESTER': 'اختر الفصل:',
-          'COURSE': 'اختر المادة:',
-          'PROF': 'اختر الدكتور:'
+          'UNI': `${modeText}\n\nاختر الجامعة:`,
+          'YEAR': `${modeText}\n\nاختر السنة:`,
+          'SEMESTER': `${modeText}\n\nاختر الفصل:`,
+          'COURSE': `${modeText}\n\nاختر المادة:`,
+          'PROF': `${modeText}\n\nاختر الدكتور:`,
+          'LECTURE': '🔄 وضع الاستبدال\n\nاختر المحاضرة المراد استبدالها:'
         };
         
         await ctx.editMessageText(titles[listType] || 'اختر خياراً:', keyboard)
@@ -461,38 +520,102 @@ export class LectureBotService implements OnModuleInit {
       }
 
       if (data.startsWith('UNI_')) {
-        session.selectedUniversity = data.substring(4);
+        const uniIndex = parseInt(data.substring(4), 10);
+        const universities = [...new Set(session.courses!.map(c => c.university))];
+        session.selectedUniversity = universities[uniIndex];
         session.step = 'SELECT_YEAR';
         const items = getItemsForListType(session, 'YEAR');
-        await ctx.editMessageText('اختر السنة:', buildPaginatedKeyboard(items, 0, 'YEAR', 'SELECT_YEAR')).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.editMessageText(`${modeText}\n\nاختر السنة:`, buildPaginatedKeyboard(items, 0, 'YEAR', 'SELECT_YEAR', session.flow)).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         await ctx.answerCbQuery();
       } else if (data.startsWith('YEAR_')) {
         session.selectedYear = parseInt(data.substring(5), 10);
         session.step = 'SELECT_SEMESTER';
         const items = getItemsForListType(session, 'SEMESTER');
-        await ctx.editMessageText('اختر الفصل:', buildPaginatedKeyboard(items, 0, 'SEMESTER', 'SELECT_SEMESTER')).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.editMessageText(`${modeText}\n\nاختر الفصل:`, buildPaginatedKeyboard(items, 0, 'SEMESTER', 'SELECT_SEMESTER', session.flow)).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         await ctx.answerCbQuery();
       } else if (data.startsWith('SEMESTER_')) {
         session.selectedSemester = parseInt(data.substring(9), 10);
         session.step = 'SELECT_COURSE';
         const items = getItemsForListType(session, 'COURSE');
-        await ctx.editMessageText('اختر المادة:', buildPaginatedKeyboard(items, 0, 'COURSE', 'SELECT_COURSE')).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.editMessageText(`${modeText}\n\nاختر المادة:`, buildPaginatedKeyboard(items, 0, 'COURSE', 'SELECT_COURSE', session.flow)).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         await ctx.answerCbQuery();
       } else if (data.startsWith('COURSE_')) {
         session.selectedCourseID = parseInt(data.substring(7), 10);
+        
+        let courseLectures: any[] = [];
+        try {
+          const res = await fetch(`${this.sveltekitUrl}/api/admin/courses/${session.selectedCourseID}/lectures`, {
+            headers: { 'Cookie': `admin_token=${session.adminToken}`, 'Accept': 'application/json' }
+          });
+          const json = await res.json();
+          if (json.status && json.data?.lectures) {
+            courseLectures = json.data.lectures;
+          }
+        } catch (e) {
+          this.logger.error('Failed to fetch course lectures:', e);
+        }
+        
+        session.courseLectures = courseLectures;
         session.step = 'SELECT_PROFESSOR';
         const items = getItemsForListType(session, 'PROF');
-        await ctx.editMessageText('اختر الدكتور:', buildPaginatedKeyboard(items, 0, 'PROF', 'SELECT_PROFESSOR')).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+        
+        if (items.length === 0 || (items.length === 1 && items[0].callback === 'PROF_ADD_NEW')) {
+          if (session.flow === 'REPLACE') {
+            await ctx.editMessageText('❌ لا توجد محاضرات متاحة للاستبدال في هذه المادة.', getTextStepKeyboard())
+              .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+            await ctx.answerCbQuery();
+            return;
+          }
+        }
+
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.editMessageText(`${modeText}\n\nاختر الدكتور:`, buildPaginatedKeyboard(items, 0, 'PROF', 'SELECT_PROFESSOR', session.flow)).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         await ctx.answerCbQuery();
       } else if (data.startsWith('PROF_')) {
         if (data === 'PROF_ADD_NEW') {
           session.step = 'ENTER_NEW_PROFESSOR';
           await ctx.editMessageText('الرجاء إدخال اسم الدكتور الجديد:', getTextStepKeyboard()).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         } else {
-          session.selectedProfessor = data.substring(5);
-          session.step = 'ENTER_LECTURE_NAME';
-          await ctx.editMessageText('أدخل اسم المحاضرة:', getTextStepKeyboard()).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+          const profIndex = parseInt(data.substring(5), 10);
+          const professors = [...new Set((session.courseLectures || []).map((l: any) => l.professor).filter(Boolean))];
+          session.selectedProfessor = professors[profIndex];
+          
+          if (session.flow === 'REPLACE') {
+            session.lectures = (session.courseLectures || []).filter((l: any) => 
+              String(l.professor).trim() === String(session.selectedProfessor).trim()
+            );
+            
+            if (!session.lectures || session.lectures.length === 0) {
+              await ctx.editMessageText('❌ لا توجد محاضرات متاحة للاستبدال لهذا الدكتور.', getTextStepKeyboard())
+                .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+              await ctx.answerCbQuery();
+              return;
+            }
+            
+            session.step = 'SELECT_LECTURE';
+            const items = getItemsForListType(session, 'LECTURE');
+            await ctx.editMessageText('🔄 وضع الاستبدال\n\nاختر المحاضرة المراد استبدالها:', buildPaginatedKeyboard(items, 0, 'LECTURE', 'SELECT_LECTURE', session.flow))
+              .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+          } else {
+            session.step = 'ENTER_LECTURE_NAME';
+            await ctx.editMessageText('أدخل اسم المحاضرة:', getTextStepKeyboard()).catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
+          }
         }
+        await ctx.answerCbQuery();
+      } else if (data.startsWith('LECTURE_')) {
+        const lecIndex = parseInt(data.substring(8), 10);
+        const lec = session.lectures?.[lecIndex];
+        if (lec) {
+          session.lectureNumber = lec.number;
+          if (lec.name) session.lectureName = lec.name;
+        }
+        
+        session.step = 'UPLOAD_PDF';
+        await ctx.editMessageText('🔄 وضع الاستبدال\n\nالرجاء رفع ملف PDF الجديد للمحاضرة.', getTextStepKeyboard())
+          .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
         await ctx.answerCbQuery();
       }
     } catch (err) {
@@ -595,15 +718,18 @@ export class LectureBotService implements OnModuleInit {
         session.selectedSemester = undefined;
         session.selectedYear = undefined;
         session.selectedUniversity = undefined;
+        session.courseLectures = undefined;
+        session.lectures = undefined;
         
         const items = getItemsForListType(session, 'UNI');
-        await ctx.reply(session.flow === 'REPLACE' ? 'اختر الجامعة:' : 'اختر الجامعة للمحاضرة التالية:', buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI'));
+        const modeText = session.flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
+        await ctx.reply(`${modeText}\n\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', session.flow));
       } else {
         await ctx.reply(session.flow === 'REPLACE' ? `❌ فشل استبدال المحاضرة: ${insertJson.message || 'خطأ غير معروف'}` : `❌ فشل إدراج المحاضرة: ${insertJson.message || 'خطأ غير معروف'}`);
       }
     } catch (err) {
       this.logger.error(err);
-      await ctx.reply('حدث خطأ أثناء المعالجة أو الإدراج. الرجاء المحاولة مرة أخرى باستخدام /start.');
+      await ctx.reply('حدث خطأ أثناء المعالجة أو الإدراج. الرجاء المحاولة مرة أخرى باستخدام /start أو /replace.');
       clearSession(session);
     }
   }
