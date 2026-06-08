@@ -1,4 +1,3 @@
-// src/telegram/lecture-bot.service.ts
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Ctx, Command, Action, On, Update, InjectBot } from 'nestjs-telegraf';
 import { Context, Markup, Telegraf } from 'telegraf';
@@ -8,7 +7,9 @@ import { Mistral } from '@mistralai/mistralai';
 interface UserState {
   step?: string;
   flow?: 'INSERT' | 'REPLACE';
+  targetAction?: 'START' | 'REPLACE' | 'REPORTS';
   adminToken?: string;
+  adminID?: number;
   courses?: any[];
   courseLectures?: any[];
   lectures?: any[];
@@ -161,7 +162,9 @@ export class LectureBotService implements OnModuleInit {
     try {
       await this.bot.telegram.setMyCommands([
         { command: 'start', description: 'بدء البوت أو إدراج محاضرة جديدة' },
-        { command: 'replace', description: 'استبدال محتوى محاضرة موجودة' }
+        { command: 'replace', description: 'استبدال محتوى محاضرة موجودة' },
+        { command: 'reports', description: 'تفعيل إشعارات الإبلاغات' },
+        { command: 'reports_stop', description: 'إيقاف إشعارات الإبلاغات' }
       ]);
       this.logger.log('Bot commands menu updated successfully.');
     } catch (err) {
@@ -175,8 +178,9 @@ export class LectureBotService implements OnModuleInit {
     if (!ctx.from) return;
     const session = ctx.session;
     session.flow = 'INSERT';
+    session.targetAction = 'START';
     
-    if (session.adminToken) {
+    if (session.adminToken && session.adminID) {
       await ctx.reply('جاري التحقق من الجلسة الحالية...');
       try {
         const coursesRes = await fetch(`${this.sveltekitUrl}/api/admin/courses`, {
@@ -199,6 +203,7 @@ export class LectureBotService implements OnModuleInit {
 
     clearSession(session);
     session.flow = 'INSERT';
+    session.targetAction = 'START';
     session.step = 'AUTH_USERNAME';
     await ctx.reply('مرحباً! الرجاء إدخال اسم مستخدم المشرف للمصادقة.');
   }
@@ -208,8 +213,9 @@ export class LectureBotService implements OnModuleInit {
     if (!ctx.from) return;
     const session = ctx.session;
     session.flow = 'REPLACE';
+    session.targetAction = 'REPLACE';
     
-    if (session.adminToken) {
+    if (session.adminToken && session.adminID) {
       await ctx.reply('جاري التحقق من الجلسة الحالية...');
       try {
         const coursesRes = await fetch(`${this.sveltekitUrl}/api/admin/courses`, {
@@ -232,8 +238,87 @@ export class LectureBotService implements OnModuleInit {
 
     clearSession(session);
     session.flow = 'REPLACE';
+    session.targetAction = 'REPLACE';
     session.step = 'AUTH_USERNAME';
     await ctx.reply('مرحباً! الرجاء إدخال اسم مستخدم المشرف للمصادقة.');
+  }
+
+  @Command('reports')
+  async reportsCommand(@Ctx() ctx: MyContext) {
+    if (!ctx.from || !ctx.chat) return;
+    const session = ctx.session;
+
+    if (!session.adminToken || !session.adminID) {
+      session.targetAction = 'REPORTS';
+      session.step = 'AUTH_USERNAME';
+      await ctx.reply('مرحباً! لإدارة إشعارات الإبلاغات، الرجاء إدخال اسم مستخدم المشرف للمصادقة.');
+      return;
+    }
+
+    await this.optInToReports(ctx, session);
+  }
+
+  @Command('reports_stop')
+  async reportsStopCommand(@Ctx() ctx: MyContext) {
+    if (!ctx.from || !ctx.chat) return;
+    const session = ctx.session;
+
+    if (!session.adminToken || !session.adminID) {
+      await ctx.reply('الرجاء تسجيل الدخول أولاً باستخدام /start أو /reports.');
+      return;
+    }
+
+    await this.optOutOfReports(ctx, session);
+  }
+
+  private async optInToReports(ctx: MyContext, session: UserState) {
+    if (!ctx.chat) return;
+    try {
+      const res = await fetch(`${this.sveltekitUrl}/api/internal/admin-telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemPassword: this.systemPassword,
+          action: 'update',
+          adminID: session.adminID,
+          telegram_chat_id: ctx.chat.id,
+          receive_reports: true
+        })
+      });
+      const json = await res.json();
+      if (json.status) {
+        await ctx.reply('✅ تم تفعيل إشعارات الإبلاغات بنجاح!\n\nستصلك رسالة على هذا الحساب في كل مرة يتم فيها الإبلاغ عن سؤال أو بطاقة في المواد التي تملك صلاحية الوصول إليها.\n\nلإيقاف الإشعارات، استخدم الأمر /reports_stop');
+      } else {
+        await ctx.reply(`❌ فشل تفعيل الإشعارات: ${json.message || 'خطأ غير معروف'}`);
+      }
+    } catch (err) {
+      this.logger.error(err);
+      await ctx.reply('حدث خطأ أثناء الاتصال بالخادم.');
+    }
+  }
+
+  private async optOutOfReports(ctx: MyContext, session: UserState) {
+    try {
+      const res = await fetch(`${this.sveltekitUrl}/api/internal/admin-telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemPassword: this.systemPassword,
+          action: 'update',
+          adminID: session.adminID,
+          receive_reports: false
+        })
+      });
+      const json = await res.json();
+      if (json.status) {
+        await ctx.reply('🔕 تم إيقاف إشعارات الإبلاغات بنجاح.\n\nلإعادة تفعيلها، استخدم الأمر /reports');
+      } else {
+        await ctx.reply(`❌ فشل إيقاف الإشعارات: ${json.message || 'خطأ غير معروف'}`);
+      }
+    } catch (err) {
+      this.logger.error(err);
+      await ctx.reply('حدث خطأ أثناء الاتصال بالخادم.');
+    }
   }
 
   @Command('cancel')
@@ -241,15 +326,17 @@ export class LectureBotService implements OnModuleInit {
     if (!ctx.from) return;
     const session = ctx.session;
     const token = session.adminToken;
+    const adminID = session.adminID;
     const courses = session.courses;
     const flow = session.flow || 'INSERT';
     
     clearSession(session);
     session.adminToken = token;
+    session.adminID = adminID;
     session.courses = courses;
     session.flow = flow;
 
-    if (session.adminToken && session.courses) {
+    if (session.adminToken && session.adminID && session.courses) {
       session.step = 'SELECT_UNI';
       const items = getItemsForListType(session, 'UNI');
       const modeText = flow === 'REPLACE' ? '🔄 وضع الاستبدال' : '➕ وضع الإضافة';
@@ -283,7 +370,8 @@ export class LectureBotService implements OnModuleInit {
           body: JSON.stringify({ username: session.username, password })
         });
 
-        if (!authRes.ok || !(await authRes.json()).status) {
+        const authJson = await authRes.json();
+        if (!authRes.ok || !authJson.status) {
           await ctx.reply('فشلت المصادقة. الرجاء المحاولة مرة أخرى باستخدام /start أو /replace.');
           clearSession(session);
           return;
@@ -308,6 +396,13 @@ export class LectureBotService implements OnModuleInit {
         }
 
         session.adminToken = adminToken;
+        session.adminID = authJson.data.adminID;
+
+        if (session.targetAction === 'REPORTS') {
+          await this.optInToReports(ctx, session);
+          session.targetAction = undefined;
+          return;
+        }
 
         const coursesRes = await fetch(`${this.sveltekitUrl}/api/admin/courses`, {
           headers: { 'Cookie': `admin_token=${adminToken}` }
@@ -388,12 +483,14 @@ export class LectureBotService implements OnModuleInit {
 
       if (data === 'NAV_CANCEL') {
         const token = session.adminToken;
+        const adminID = session.adminID;
         const courses = session.courses;
         const flow = session.flow || 'INSERT';
         const wasOnFirstStep = session.step === 'SELECT_UNI';
         
         clearSession(session);
         session.adminToken = token;
+        session.adminID = adminID;
         session.courses = courses;
         session.flow = flow;
         
