@@ -416,23 +416,20 @@ export class LectureBotService implements OnModuleInit {
         await ctx.reply(`${modeText}\nاختر الجامعة:`, buildPaginatedKeyboard(items, 0, 'UNI', 'SELECT_UNI', session.flow));
       } else if (session.step === 'ENTER_NEW_PROFESSOR') {
         session.selectedProfessor = text;
-        session.step = session.flow === 'REPLACE' ? 'ENTER_LECTURE_NUMBER' : 'ENTER_LECTURE_NAME';
-        const msg = session.flow === 'REPLACE' ? 'أدخل رقم المحاضرة:' : 'أدخل اسم المحاضرة:';
-        await ctx.reply(msg, getTextStepKeyboard());
+        session.step = 'ENTER_LECTURE_NAME';
+        await ctx.reply('أدخل اسم المحاضرة:', getTextStepKeyboard());
       } else if (session.step === 'ENTER_LECTURE_NAME') {
         session.lectureName = text;
-        session.step = 'ENTER_LECTURE_NUMBER';
-        await ctx.reply('أدخل رقم المحاضرة:', getTextStepKeyboard());
-      } else if (session.step === 'ENTER_LECTURE_NUMBER') {
-        const convertedText = convertArabicNumeralsToEnglish(text);
-        const num = parseInt(convertedText, 10);
-        if (isNaN(num)) {
-          await ctx.reply('رقم غير صالح. الرجاء إدخال رقم محاضرة صالح:', getTextStepKeyboard());
-          return;
-        }
-        session.lectureNumber = num;
+        
+        // Automatically calculate the next lecture number for this professor
+        const profLectures = (session.courseLectures || []).filter((l: any) => 
+          l.professor && String(l.professor).trim() === String(session.selectedProfessor).trim()
+        );
+        const maxNumber = profLectures.reduce((max, l) => Math.max(max, l.number || 0), 0);
+        session.lectureNumber = maxNumber + 1;
+        
         session.step = 'UPLOAD_PDF';
-        await ctx.reply('الرجاء رفع ملف PDF للمحاضرة.', getTextStepKeyboard());
+        await ctx.reply(`تم تعيين رقم المحاضرة تلقائياً: ${session.lectureNumber}\nالرجاء رفع ملف PDF للمحاضرة.`, getTextStepKeyboard());
       }
     } catch (err) {
       this.logger.error(err);
@@ -552,7 +549,7 @@ export class LectureBotService implements OnModuleInit {
           items = getItemsForListType(session, 'PROF');
           title = `${modeText}\nاختر الدكتور:`;
           listType = 'PROF';
-        } else if (session.step === 'ENTER_LECTURE_NUMBER') {
+        } else if (session.step === 'UPLOAD_PDF') {
           if (session.flow === 'REPLACE') {
             session.step = 'SELECT_LECTURE';
             items = getItemsForListType(session, 'LECTURE');
@@ -561,18 +558,6 @@ export class LectureBotService implements OnModuleInit {
           } else {
             session.step = 'ENTER_LECTURE_NAME';
             await ctx.editMessageText('أدخل اسم المحاضرة:', getTextStepKeyboard())
-              .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
-            await ctx.answerCbQuery();
-            return;
-          }
-        } else if (session.step === 'UPLOAD_PDF') {
-          session.step = session.flow === 'REPLACE' ? 'SELECT_LECTURE' : 'ENTER_LECTURE_NUMBER';
-          if (session.flow === 'REPLACE') {
-            items = getItemsForListType(session, 'LECTURE');
-            title = '🔄 وضع الاستبدال\nاختر المحاضرة المراد استبدالها:';
-            listType = 'LECTURE';
-          } else {
-            await ctx.editMessageText('أدخل رقم المحاضرة:', getTextStepKeyboard())
               .catch(e => { if (!e.message.includes('message is not modified')) this.logger.error(e); });
             await ctx.answerCbQuery();
             return;
