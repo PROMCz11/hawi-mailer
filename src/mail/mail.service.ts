@@ -11,7 +11,14 @@ export class MailService {
         },
     });
 
-    async sendOtp(to: string, otp: string) {
+    async sendOtp(to: string, otp: string, purpose: 'confirm' | 'reset' = 'confirm') {
+        const isReset = purpose === 'reset';
+        const title = isReset ? 'رمز إعادة تعيين كلمة المرور' : 'رمز التأكيد';
+        const greeting = isReset
+            ? 'مرحباً، رمز إعادة تعيين كلمة المرور لحسابك هو:'
+            : 'مرحباً، رمز تفعيل حسابك هو:';
+        const subject = isReset ? 'رمز إعادة تعيين كلمة المرور - HAWI' : 'رمز التأكيد - HAWI';
+
         const htmlContent = `
         <!DOCTYPE html>
         <html>
@@ -78,8 +85,8 @@ export class MailService {
         </head>
         <body>
             <div class="container">
-                <div class="header">رمز التأكيد</div>
-                <div class="greeting">مرحباً، رمز تفعيل حسابك هو:</div>
+                <div class="header">${title}</div>
+                <div class="greeting">${greeting}</div>
                 <div class="code-container">
                     <div class="verification-code">${otp}</div>
                 </div>
@@ -94,7 +101,7 @@ export class MailService {
         const info = await this.transporter.sendMail({
             from: `"Hawi's email verification service" <${process.env.GMAIL_USER}>`,
             to,
-            subject: 'رمز التأكيد - HAWI',
+            subject,
             html: htmlContent,
         });
 

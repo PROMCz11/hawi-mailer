@@ -8,10 +8,10 @@ export class OtpController {
 
     @Post('send')
     @UseGuards(HeaderGuard)
-    async sendOtp(@Body() body: { email: string }) {
+    async sendOtp(@Body() body: { email: string; purpose?: 'confirm' | 'reset' }) {
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-        const info = await this.mailService.sendOtp(body.email, otp);
+        const info = await this.mailService.sendOtp(body.email, otp, body.purpose);
 
         return {
             messageId: info.messageId,
