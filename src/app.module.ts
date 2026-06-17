@@ -10,9 +10,10 @@ import { ReportsController } from './telegram/reports.controller';
 import { ReportsService } from './telegram/reports.service';
 import { HeaderGuard } from './auth/header/header.guard';
 import { BundlesModule } from './bundles/bundles.module';
+import { AnalysisModule } from './analysis/analysis.module';
 
 @Module({
-  imports: [ConfigModule.forRoot(), FirebaseModule, NotificationsModule, ImgModule, TelegramModule, BundlesModule],
+  imports: [ConfigModule.forRoot(), FirebaseModule, NotificationsModule, ImgModule, TelegramModule, BundlesModule, AnalysisModule],
   providers: [MailService, ReportsService, HeaderGuard],
   controllers: [OtpController, ReportsController],
 })
