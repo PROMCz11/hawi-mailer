@@ -127,6 +127,20 @@ Output raw JSON only. No markdown, no code fences, no explanation outside the ar
   }
 ]`;
 
+function extractJson(raw: string): string {
+  // Strip markdown code fences
+  let s = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  // Find the outermost JSON array
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start !== -1 && end !== -1 && end > start) {
+    s = s.slice(start, end + 1);
+  }
+  // Fix stray spaces inside JSON keys: " "key" -> "key"
+  s = s.replace(/"(\s+)"/g, '"');
+  return s;
+}
+
 interface Question {
   questionID: number;
   body: string;
@@ -187,7 +201,7 @@ export class AnalysisService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({ model: 'deepseek-chat', messages, temperature: 0.1 }),
+        body: JSON.stringify({ model: 'deepseek-chat', messages, temperature: 0.1, max_tokens: 8192 }),
       });
 
       if (!aiRes.ok) {
@@ -200,9 +214,9 @@ export class AnalysisService {
 
       let flagged: any[];
       try {
-        flagged = JSON.parse(raw);
+        flagged = JSON.parse(extractJson(raw));
       } catch {
-        this.logger.error('Failed to parse AI response', raw.slice(0, 300));
+        this.logger.error('Failed to parse AI response', raw.slice(0, 500));
         return;
       }
 
