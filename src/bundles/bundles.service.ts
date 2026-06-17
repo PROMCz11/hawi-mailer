@@ -1,16 +1,14 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class BundlesService {
-  private supabase: SupabaseClient;
+  private supabaseUrl: string;
+  private supabaseKey: string;
 
   constructor(private configService: ConfigService) {
-    this.supabase = createClient(
-      configService.getOrThrow<string>('SUPABASE_URL'),
-      configService.getOrThrow<string>('SUPABASE_SERVICE_KEY'),
-    );
+    this.supabaseUrl = configService.getOrThrow<string>('SUPABASE_URL');
+    this.supabaseKey = configService.getOrThrow<string>('SUPABASE_SERVICE_KEY');
   }
 
   async publishVersion(opts: {
@@ -19,15 +17,25 @@ export class BundlesService {
     content?: string;
     force?: string;
   }) {
-    const { error } = await this.supabase.from('hawi_version').insert({
-      version: opts.version,
-      bundleUrl: opts.bundleUrl,
-      content: opts.content ?? null,
-      force: opts.force ?? null,
+    const res = await fetch(`${this.supabaseUrl}/rest/v1/hawi_version`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': this.supabaseKey,
+        'Authorization': `Bearer ${this.supabaseKey}`,
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        version: opts.version,
+        bundleUrl: opts.bundleUrl,
+        content: opts.content ?? null,
+        force: opts.force ?? null,
+      }),
     });
 
-    if (error) {
-      throw new InternalServerErrorException(`Database insert failed: ${error.message}`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new InternalServerErrorException(`Database insert failed: ${detail}`);
     }
 
     return { version: opts.version, bundleUrl: opts.bundleUrl };
