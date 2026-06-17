@@ -210,7 +210,7 @@ export class AnalysisService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({ model: 'deepseek-chat', messages, temperature: 0.1, max_tokens: 8192 }),
+        body: JSON.stringify({ model: 'deepseek-v4-pro', messages, temperature: 0.1, max_tokens: 8192 }),
       });
 
       if (!aiRes.ok) {
