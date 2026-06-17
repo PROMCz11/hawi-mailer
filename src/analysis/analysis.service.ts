@@ -39,12 +39,21 @@ If the answer marked "correct": true matches standard medical teaching from
 your lectures, do not include that question in your output at all. Return
 nothing for it.
 
-### ODD-ONE-OUT QUESTIONS → FLAG BUT DO NOT CORRECT
-Some questions use the phrasing "كل ما يلي... ماعدا" or equivalent, listing
-3+ correct statements and 1 incorrect one. When the answer marked
-"correct": true IS the odd one out (the incorrect/exception choice), the
-answer is valid — do not change it.
-However, include it in output with "question_type": "odd_one_out".
+### ODD-ONE-OUT QUESTIONS
+Some questions list 3+ correct statements and 1 incorrect one, where the
+answer marked "correct": true is the exception/odd-one-out choice.
+
+First, check the question body for an explicit exception indicator — any of:
+"ماعدا", "عدا", "إلا", "except", "كل ما يلي... ماعدا", or any equivalent
+phrasing that clearly tells the reader to pick the wrong/exception item.
+
+- If the exception indicator IS present in the body → the answer is valid,
+  **skip the question entirely** (do not include it in output).
+- If the exception indicator is NOT present in the body (i.e., the question
+  reads like a normal "which is correct" question but the marked answer is
+  actually the odd-one-out) → include it in output with
+  "question_type": "odd_one_out". This is a phrasing problem: students will
+  not know they are supposed to pick the exception.
 
 ### INCORRECT QUESTIONS → OUTPUT STRUCTURED JSON
 If the answer marked "correct": true is wrong, output a JSON object for it.
