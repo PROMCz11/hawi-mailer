@@ -67,10 +67,14 @@ export class MailService {
                     color: #10606E;
                     font-size: 64px;
                     font-weight: bold;
-                    letter-spacing: 12px;
-                    padding-left: 8px;
                     line-height: 120%;
                     margin: 0 auto;
+                    direction: ltr;
+                    unicode-bidi: embed;
+                }
+                .verification-code span {
+                    display: inline-block;
+                    margin: 0 6px;
                 }
                 .footer {
                     color: #FFFFFF;
@@ -88,7 +92,7 @@ export class MailService {
                 <div class="header">${title}</div>
                 <div class="greeting">${greeting}</div>
                 <div class="code-container">
-                    <div class="verification-code">${otp}</div>
+                    <div class="verification-code" dir="ltr">${otp.split('').map(d => `<span>${d}</span>`).join('')}</div>
                 </div>
             </div>
             <div class="footer">
