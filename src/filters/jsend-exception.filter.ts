@@ -15,7 +15,9 @@ export class JsendExceptionFilter implements ExceptionFilter {
   catch(exception: any, host: ArgumentsHost) {
     // Ignore Telegraf contexts
     if (host.getType() !== 'http') {
-      this.logger.error(`Non-HTTP Exception: ${exception?.message || exception}`);
+      this.logger.error(
+        `Non-HTTP Exception: ${exception?.message || exception}`,
+      );
       return;
     }
 
@@ -23,7 +25,9 @@ export class JsendExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
 
     if (!response || !response.status) {
-      this.logger.error(`HTTP Exception but no valid response object: ${exception?.message || exception}`);
+      this.logger.error(
+        `HTTP Exception but no valid response object: ${exception?.message || exception}`,
+      );
       return;
     }
 
@@ -33,10 +37,13 @@ export class JsendExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
-      
+
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
-      } else if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+      } else if (
+        typeof exceptionResponse === 'object' &&
+        exceptionResponse !== null
+      ) {
         message = (exceptionResponse as any).message || exception.message;
       }
     } else if (exception instanceof Error) {

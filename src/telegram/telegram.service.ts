@@ -8,7 +8,10 @@ export class TelegramService {
 
   constructor(@InjectBot() private readonly bot: Telegraf) {}
 
-  async sendMessage(message: string, chatId: string | number): Promise<boolean> {
+  async sendMessage(
+    message: string,
+    chatId: string | number,
+  ): Promise<boolean> {
     try {
       await this.bot.telegram.sendMessage(chatId, message, {
         parse_mode: 'Markdown',
@@ -16,7 +19,8 @@ export class TelegramService {
       this.logger.log(`Message sent successfully to chat ${chatId}`);
       return true;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       this.logger.error(`Error sending message: ${errorMessage}`);
       return false;
     }

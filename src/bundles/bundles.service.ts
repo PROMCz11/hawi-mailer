@@ -21,9 +21,9 @@ export class BundlesService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': this.supabaseKey,
-        'Authorization': `Bearer ${this.supabaseKey}`,
-        'Prefer': 'return=minimal',
+        apikey: this.supabaseKey,
+        Authorization: `Bearer ${this.supabaseKey}`,
+        Prefer: 'return=minimal',
       },
       body: JSON.stringify({
         version: opts.version,
@@ -35,7 +35,9 @@ export class BundlesService {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => res.statusText);
-      throw new InternalServerErrorException(`Database insert failed: ${detail}`);
+      throw new InternalServerErrorException(
+        `Database insert failed: ${detail}`,
+      );
     }
 
     return { version: opts.version, bundleUrl: opts.bundleUrl };

@@ -3,23 +3,29 @@ import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailService {
-    private transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: process.env.GMAIL_USER,
-            pass: process.env.GMAIL_PASS,
-        },
-    });
+  private transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_PASS,
+    },
+  });
 
-    async sendOtp(to: string, otp: string, purpose: 'confirm' | 'reset' = 'confirm') {
-        const isReset = purpose === 'reset';
-        const title = isReset ? 'رمز إعادة تعيين كلمة المرور' : 'رمز التأكيد';
-        const greeting = isReset
-            ? 'مرحباً، رمز إعادة تعيين كلمة المرور لحسابك هو:'
-            : 'مرحباً، رمز تفعيل حسابك هو:';
-        const subject = isReset ? 'رمز إعادة تعيين كلمة المرور - HAWI' : 'رمز التأكيد - HAWI';
+  async sendOtp(
+    to: string,
+    otp: string,
+    purpose: 'confirm' | 'reset' = 'confirm',
+  ) {
+    const isReset = purpose === 'reset';
+    const title = isReset ? 'رمز إعادة تعيين كلمة المرور' : 'رمز التأكيد';
+    const greeting = isReset
+      ? 'مرحباً، رمز إعادة تعيين كلمة المرور لحسابك هو:'
+      : 'مرحباً، رمز تفعيل حسابك هو:';
+    const subject = isReset
+      ? 'رمز إعادة تعيين كلمة المرور - HAWI'
+      : 'رمز التأكيد - HAWI';
 
-        const htmlContent = `
+    const htmlContent = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -92,7 +98,10 @@ export class MailService {
                 <div class="header">${title}</div>
                 <div class="greeting">${greeting}</div>
                 <div class="code-container">
-                    <div class="verification-code" dir="ltr">${otp.split('').map(d => `<span>${d}</span>`).join('')}</div>
+                    <div class="verification-code" dir="ltr">${otp
+                      .split('')
+                      .map((d) => `<span>${d}</span>`)
+                      .join('')}</div>
                 </div>
             </div>
             <div class="footer">
@@ -102,13 +111,13 @@ export class MailService {
         </html>
         `;
 
-        const info = await this.transporter.sendMail({
-            from: `"Hawi's email verification service" <${process.env.GMAIL_USER}>`,
-            to,
-            subject,
-            html: htmlContent,
-        });
+    const info = await this.transporter.sendMail({
+      from: `"Hawi's email verification service" <${process.env.GMAIL_USER}>`,
+      to,
+      subject,
+      html: htmlContent,
+    });
 
-        return info;
-    }
+    return info;
+  }
 }

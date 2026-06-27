@@ -138,7 +138,10 @@ Output raw JSON only. No markdown, no code fences, no explanation outside the ar
 
 function extractJson(raw: string): string {
   // Strip markdown code fences
-  let s = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  let s = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
   // Find the outermost JSON array
   const start = s.indexOf('[');
   const end = s.lastIndexOf(']');
@@ -175,7 +178,10 @@ export class AnalysisService {
     this.supabaseKey = configService.getOrThrow<string>('SUPABASE_SERVICE_KEY');
   }
 
-  async analyzeBatch(questions: Question[], lectures: Lecture[]): Promise<void> {
+  async analyzeBatch(
+    questions: Question[],
+    lectures: Lecture[],
+  ): Promise<void> {
     try {
       if (questions.length === 0) return;
 
@@ -202,7 +208,10 @@ export class AnalysisService {
         explanation: q.explanation,
       }));
 
-      messages.push({ role: 'user', content: JSON.stringify(questionsPayload) });
+      messages.push({
+        role: 'user',
+        content: JSON.stringify(questionsPayload),
+      });
 
       const aiRes = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST',
@@ -210,7 +219,12 @@ export class AnalysisService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({ model: 'deepseek-v4-pro', messages, temperature: 0.1, max_tokens: 8192 }),
+        body: JSON.stringify({
+          model: 'deepseek-v4-pro',
+          messages,
+          temperature: 0.1,
+          max_tokens: 8192,
+        }),
       });
 
       if (!aiRes.ok) {
@@ -218,8 +232,9 @@ export class AnalysisService {
         return;
       }
 
-      const aiData = await aiRes.json() as any;
-      const raw: string = aiData?.choices?.[0]?.message?.content?.trim() ?? '[]';
+      const aiData = await aiRes.json();
+      const raw: string =
+        aiData?.choices?.[0]?.message?.content?.trim() ?? '[]';
 
       let flagged: any[];
       try {
@@ -241,7 +256,8 @@ export class AnalysisService {
           !flag.issue ||
           !flag.correct_answer ||
           !flag.reasoning
-        ) continue;
+        )
+          continue;
 
         await fetch(`${this.supabaseUrl}/rest/v1/hawi_question_flag`, {
           method: 'POST',

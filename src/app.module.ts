@@ -11,9 +11,21 @@ import { ReportsService } from './telegram/reports.service';
 import { HeaderGuard } from './auth/header/header.guard';
 import { BundlesModule } from './bundles/bundles.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { SupabaseModule } from './supabase/supabase.module';
+import { HakimModule } from './hakim/hakim.module';
 
 @Module({
-  imports: [ConfigModule.forRoot(), FirebaseModule, NotificationsModule, ImgModule, TelegramModule, BundlesModule, AnalysisModule],
+  imports: [
+    ConfigModule.forRoot(),
+    FirebaseModule,
+    NotificationsModule,
+    ImgModule,
+    TelegramModule,
+    BundlesModule,
+    AnalysisModule,
+    SupabaseModule,
+    HakimModule,
+  ],
   providers: [MailService, ReportsService, HeaderGuard],
   controllers: [OtpController, ReportsController],
 })

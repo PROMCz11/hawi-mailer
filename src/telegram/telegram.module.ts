@@ -14,11 +14,15 @@ const LocalSession = require('telegraf-session-local');
       useFactory: (configService: ConfigService) => {
         const token = configService.get<string>('TELEGRAM_BOT_TOKEN');
         if (!token) {
-          throw new Error('TELEGRAM_BOT_TOKEN is not defined in environment variables');
+          throw new Error(
+            'TELEGRAM_BOT_TOKEN is not defined in environment variables',
+          );
         }
         return {
           token,
-          middlewares: [new LocalSession({ database: 'bot-sessions.json' }).middleware()]
+          middlewares: [
+            new LocalSession({ database: 'bot-sessions.json' }).middleware(),
+          ],
         };
       },
       inject: [ConfigService],

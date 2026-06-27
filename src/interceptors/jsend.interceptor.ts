@@ -14,7 +14,14 @@ export class JsendInterceptor implements NestInterceptor {
     if (context.getType() !== 'http') {
       return next.handle();
     }
-    
+
+    // SSE endpoints (Hakim streaming) write the response directly. Once headers
+    // are sent there's nothing to wrap — pass the stream through untouched.
+    const response = context.switchToHttp().getResponse();
+    if (response?.headersSent) {
+      return next.handle();
+    }
+
     return next.handle().pipe(
       map((data) => ({
         status: true,

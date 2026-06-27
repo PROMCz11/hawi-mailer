@@ -54,7 +54,9 @@ export class BundlesController {
 
   @Get(':filename')
   serveBundle(@Param('filename') filename: string, @Res() res: Response) {
-    const bundlesDir = resolve(join(__dirname, '..', '..', 'uploads', 'bundles'));
+    const bundlesDir = resolve(
+      join(__dirname, '..', '..', 'uploads', 'bundles'),
+    );
     const filePath = resolve(join(bundlesDir, filename));
 
     if (!filePath.startsWith(bundlesDir + sep)) {

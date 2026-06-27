@@ -1,25 +1,25 @@
 import {
-    CanActivate,
-    ExecutionContext,
-    Injectable,
-    UnauthorizedException,
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class HeaderGuard implements CanActivate {
-    constructor(private configService: ConfigService) {}
+  constructor(private configService: ConfigService) {}
 
-    canActivate(context: ExecutionContext): boolean {
-        const request = context.switchToHttp().getRequest();
-        const token = request.headers['authtoken'];
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    const token = request.headers['authtoken'];
 
-        const expectedToken = this.configService.get<string>('MAIL_PASS');
+    const expectedToken = this.configService.get<string>('MAIL_PASS');
 
-        if (!token || token !== expectedToken) {
-            throw new UnauthorizedException('Invalid or missing auth token');
-        }
-
-        return true;
+    if (!token || token !== expectedToken) {
+      throw new UnauthorizedException('Invalid or missing auth token');
     }
+
+    return true;
+  }
 }

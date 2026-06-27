@@ -13,8 +13,11 @@ export class ReportsService {
     private readonly configService: ConfigService,
     @InjectBot() private readonly bot: Telegraf,
   ) {
-    this.sveltekitUrl = this.configService.get<string>('SVELTEKIT_URL') || 'http://localhost:5173';
-    this.systemPassword = this.configService.get<string>('SYSTEM_PASSWORD') || '';
+    this.sveltekitUrl =
+      this.configService.get<string>('SVELTEKIT_URL') ||
+      'http://localhost:5173';
+    this.systemPassword =
+      this.configService.get<string>('SYSTEM_PASSWORD') || '';
   }
 
   async dispatchReports(payload: {
@@ -33,15 +36,18 @@ export class ReportsService {
     }
 
     try {
-      const res = await fetch(`${this.sveltekitUrl}/api/internal/admin-telegram`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemPassword: this.systemPassword,
-          action: 'resolve',
-          adminIDs: eligibleAdminIDs,
-        }),
-      });
+      const res = await fetch(
+        `${this.sveltekitUrl}/api/internal/admin-telegram`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemPassword: this.systemPassword,
+            action: 'resolve',
+            adminIDs: eligibleAdminIDs,
+          }),
+        },
+      );
 
       const json = await res.json();
 
@@ -51,16 +57,21 @@ export class ReportsService {
       }
 
       const admins = json.data.admins;
-      
+
       const typeText = type === 'question' ? 'سؤال' : 'بطاقة';
       const message = `🚨 إبلاغ جديد عن ${typeText}\n\n${template}`;
 
       for (const admin of admins) {
         if (admin.telegram_chat_id) {
           try {
-            await this.bot.telegram.sendMessage(admin.telegram_chat_id, message);
+            await this.bot.telegram.sendMessage(
+              admin.telegram_chat_id,
+              message,
+            );
           } catch (err: any) {
-            this.logger.error(`Failed to send message to chat ${admin.telegram_chat_id}: ${err.message}`);
+            this.logger.error(
+              `Failed to send message to chat ${admin.telegram_chat_id}: ${err.message}`,
+            );
           }
         }
       }

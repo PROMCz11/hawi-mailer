@@ -11,16 +11,19 @@ export class ReportsController {
   @Post('reports')
   @UseGuards(HeaderGuard)
   async receiveReport(
-    @Body() body: {
+    @Body()
+    body: {
       type: string;
       template: string;
       eligibleAdminIDs: number[];
       courseName: string;
       entityName: string;
       reportText: string;
-    }
+    },
   ) {
-    this.logger.log(`Received ${body.type} report for course ${body.courseName}`);
+    this.logger.log(
+      `Received ${body.type} report for course ${body.courseName}`,
+    );
     await this.reportsService.dispatchReports(body);
     return { success: true };
   }

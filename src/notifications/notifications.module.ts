@@ -5,8 +5,8 @@ import { HeaderGuard } from 'src/auth/header/header.guard';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
-    imports: [ConfigModule],
-    controllers: [NotificationsController],
-    providers: [FirebaseService, HeaderGuard],
+  imports: [ConfigModule],
+  controllers: [NotificationsController],
+  providers: [FirebaseService, HeaderGuard],
 })
 export class NotificationsModule {}

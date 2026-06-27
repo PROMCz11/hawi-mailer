@@ -4,13 +4,26 @@ import { HeaderGuard } from 'src/auth/header/header.guard';
 
 @Controller('notifications')
 export class NotificationsController {
-    constructor(private readonly firebaseService: FirebaseService) {}
+  constructor(private readonly firebaseService: FirebaseService) {}
 
-    @Post('send')
-    @UseGuards(HeaderGuard)
-    async send(@Body() body: { tokens: string[]; title: string; body: string; data?: Record<string, string> }) {
-        const { tokens, title, body: messageBody, data } = body;
-        const result = await this.firebaseService.sendNotification(tokens, title, messageBody, data);
-        return { result };
-    }
+  @Post('send')
+  @UseGuards(HeaderGuard)
+  async send(
+    @Body()
+    body: {
+      tokens: string[];
+      title: string;
+      body: string;
+      data?: Record<string, string>;
+    },
+  ) {
+    const { tokens, title, body: messageBody, data } = body;
+    const result = await this.firebaseService.sendNotification(
+      tokens,
+      title,
+      messageBody,
+      data,
+    );
+    return { result };
+  }
 }

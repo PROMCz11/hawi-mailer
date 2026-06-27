@@ -9,7 +9,10 @@ export class AnalysisController {
   @Post('analyze-batch')
   @UseGuards(HeaderGuard)
   analyzeBatch(@Body() body: { questions: any[]; lectures: any[] }) {
-    void this.analysisService.analyzeBatch(body.questions ?? [], body.lectures ?? []);
+    void this.analysisService.analyzeBatch(
+      body.questions ?? [],
+      body.lectures ?? [],
+    );
     return {};
   }
 }

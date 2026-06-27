@@ -4,18 +4,20 @@ import { HeaderGuard } from 'src/auth/header/header.guard';
 
 @Controller('otp')
 export class OtpController {
-    constructor(private readonly mailService: MailService) {}
+  constructor(private readonly mailService: MailService) {}
 
-    @Post('send')
-    @UseGuards(HeaderGuard)
-    async sendOtp(@Body() body: { email: string; purpose?: 'confirm' | 'reset' }) {
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  @Post('send')
+  @UseGuards(HeaderGuard)
+  async sendOtp(
+    @Body() body: { email: string; purpose?: 'confirm' | 'reset' },
+  ) {
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-        const info = await this.mailService.sendOtp(body.email, otp, body.purpose);
+    const info = await this.mailService.sendOtp(body.email, otp, body.purpose);
 
-        return {
-            messageId: info.messageId,
-            otp
-        };
-    }
+    return {
+      messageId: info.messageId,
+      otp,
+    };
+  }
 }
