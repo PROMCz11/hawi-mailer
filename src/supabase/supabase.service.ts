@@ -106,6 +106,22 @@ export class SupabaseService {
     return data[0] ?? null;
   }
 
+  /** Bulk INSERT (one request, many rows). Used for lecture chunk batches. */
+  async insertMany(table: string, rows: Record<string, any>[]): Promise<void> {
+    if (rows.length === 0) return;
+    const res = await fetch(`${this.restUrl}/${table}`, {
+      method: 'POST',
+      headers: this.headers({ Prefer: 'return=minimal' }),
+      body: JSON.stringify(rows),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new InternalServerErrorException(
+        `Bulk insert ${table} failed: ${detail}`,
+      );
+    }
+  }
+
   /** PATCH rows matching the query. */
   async update(
     table: string,
