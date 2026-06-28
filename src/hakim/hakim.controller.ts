@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -10,13 +11,10 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
-import { UserJwtGuard } from '../auth/user/user-jwt.guard';
-import { HakimService } from './hakim.service';
+import { Response } from 'express';
+import { UserJwtGuard, AuthedRequest } from '../auth/user/user-jwt.guard';
+import { HakimService, HakimAuth } from './hakim.service';
 import { ChatRequest, ExplainQuestionRequest } from './dto/hakim.dto';
-
-/** The guard attaches `userID` to the request after verifying the user JWT. */
-type AuthedRequest = Request & { userID: number };
 
 @Controller('hakim')
 @UseGuards(UserJwtGuard)
@@ -30,7 +28,7 @@ export class HakimController {
     @Res() res: Response,
     @Body() body: ChatRequest,
   ) {
-    await this.hakim.streamChat(req.userID, body, req, res);
+    await this.hakim.streamChat(this.authOf(req), body, req, res);
   }
 
   @Post('explain-question')
@@ -39,13 +37,14 @@ export class HakimController {
     @Res() res: Response,
     @Body() body: ExplainQuestionRequest,
   ) {
-    await this.hakim.streamExplainQuestion(req.userID, body, req, res);
+    await this.hakim.streamExplainQuestion(this.authOf(req), body, req, res);
   }
 
-  // Plain JSON — wrapped by the global JSend interceptor.
+  // Plain JSON — wrapped by the global JSend interceptor. History lives under a
+  // real user account, so ephemeral admin testers have nothing to list.
   @Get('conversations')
   listConversations(@Req() req: AuthedRequest) {
-    return this.hakim.listConversations(req.userID);
+    return this.hakim.listConversations(this.requireUser(req));
   }
 
   @Get('conversations/:id')
@@ -53,7 +52,7 @@ export class HakimController {
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.hakim.getConversation(req.userID, id);
+    return this.hakim.getConversation(this.requireUser(req), id);
   }
 
   @Delete('conversations/:id')
@@ -61,6 +60,22 @@ export class HakimController {
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.hakim.deleteConversation(req.userID, id);
+    return this.hakim.deleteConversation(this.requireUser(req), id);
+  }
+
+  private authOf(req: AuthedRequest): HakimAuth {
+    return {
+      userID: req.userID == null ? null : Number(req.userID),
+      ephemeral: !!req.ephemeral,
+    };
+  }
+
+  private requireUser(req: AuthedRequest): number {
+    if (req.userID == null) {
+      throw new ForbiddenException(
+        'Conversation history is not available for admin testers',
+      );
+    }
+    return Number(req.userID);
   }
 }

@@ -9,11 +9,17 @@ import { Request } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { SupabaseService } from '../../supabase/supabase.service';
 
-type AuthedRequest = Request & { userID?: number | string };
+export type AuthedRequest = Request & {
+  userID?: number | string | null;
+  adminID?: number | string;
+  ephemeral?: boolean;
+};
 
 interface UserTokenPayload extends jwt.JwtPayload {
   userID?: number | string;
   session_id?: string;
+  adminID?: number | string;
+  hakimAdmin?: boolean;
 }
 
 /**
@@ -23,7 +29,12 @@ interface UserTokenPayload extends jwt.JwtPayload {
  * active `session_token` in hawi_user (so a token from a logged-out / superseded
  * device is rejected). On success, attaches `userID` to the request.
  *
- * The tokens are issued by `@tsndr/cloudflare-worker-jwt` (HS256), which
+ * Also accepts the short-lived "Hakim test" token minted by the /control test
+ * page for super / ambassador admins (`hakimAdmin: true`). Those requests are
+ * marked `ephemeral` — unlimited usage, nothing persisted (admins aren't
+ * hawi_user rows).
+ *
+ * Tokens are issued by `@tsndr/cloudflare-worker-jwt` (HS256), which
  * `jsonwebtoken.verify` validates with the same shared secret.
  */
 @Injectable()
@@ -53,6 +64,23 @@ export class UserJwtGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
+    // Admin "Hakim test" token (from the /control test page).
+    if (payload.hakimAdmin && payload.adminID) {
+      const perms = await this.supabase.select<{ type: string }>(
+        'hawi_permission',
+        `adminID=eq.${encodeURIComponent(String(payload.adminID))}` +
+          `&type=in.(super,ambassador)&select=type`,
+      );
+      if (perms.length === 0) {
+        throw new UnauthorizedException('Not an authorized admin');
+      }
+      request.adminID = payload.adminID;
+      request.userID = null;
+      request.ephemeral = true;
+      return true;
+    }
+
+    // Regular user token.
     const userID = payload.userID;
     const sessionID = payload.session_id;
     if (!userID || !sessionID) {
@@ -69,6 +97,7 @@ export class UserJwtGuard implements CanActivate {
     }
 
     request.userID = userID;
+    request.ephemeral = false;
     return true;
   }
 }

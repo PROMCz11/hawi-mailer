@@ -18,6 +18,16 @@ import {
 } from './hakim.prompts';
 import { ChatRequest, ExplainQuestionRequest } from './dto/hakim.dto';
 
+/**
+ * Who is making the request. `ephemeral` requests (super/ambassador admins on
+ * the /control test page) get unlimited usage and persist nothing — their
+ * userID is null and history is supplied by the client.
+ */
+export interface HakimAuth {
+  userID: number | null;
+  ephemeral: boolean;
+}
+
 interface ConversationRow {
   conversationID: number;
   userID: number;
@@ -48,7 +58,7 @@ export class HakimService {
   // ─── Public SSE endpoints ────────────────────────────────────────────────
 
   async streamChat(
-    userID: number,
+    auth: HakimAuth,
     body: ChatRequest,
     req: Request,
     res: Response,
@@ -61,28 +71,33 @@ export class HakimService {
       courseID: body.scope?.courseID ?? null,
     };
 
-    // Resolve conversation (verifying ownership) before committing to SSE, so
-    // a 404/403 returns a normal HTTP error instead of an event-stream error.
-    let conversation = body.conversationID
-      ? await this.requireOwnedConversation(body.conversationID, userID)
-      : null;
+    // Resolve conversation (verifying ownership) before committing to SSE, so a
+    // 404/403 returns a normal HTTP error instead of an event-stream error.
+    // Ephemeral (admin) requests never touch persisted conversations.
+    let conversation =
+      body.conversationID && !auth.ephemeral
+        ? await this.requireOwnedConversation(body.conversationID, auth.userID!)
+        : null;
 
     this.initSSE(res);
 
     try {
-      // Gate usage up front — no conversation/message is created if blocked.
-      const quota = await this.quota.check(userID);
+      const quota = auth.ephemeral
+        ? this.unlimitedQuota()
+        : await this.quota.check(auth.userID!);
       if (quota.mode === 'insufficient') {
         this.sendLimit(res, quota);
         return this.end(res);
       }
 
-      const history = conversation
-        ? await this.loadHistory(conversation.conversationID)
-        : [];
+      const history = auth.ephemeral
+        ? this.clientHistory(body.history)
+        : conversation
+          ? await this.loadHistory(conversation.conversationID)
+          : [];
 
-      if (!conversation) {
-        conversation = await this.createConversation(userID, {
+      if (!auth.ephemeral && !conversation) {
+        conversation = await this.createConversation(auth.userID!, {
           scope_type: scope.lectureID
             ? 'lecture'
             : scope.courseID
@@ -96,10 +111,13 @@ export class HakimService {
 
       this.sendEvent(res, {
         type: 'start',
-        conversationID: conversation.conversationID,
+        conversationID: conversation?.conversationID ?? null,
+        ephemeral: auth.ephemeral,
       });
 
-      await this.persistMessage(conversation, userID, 'user', message);
+      if (conversation) {
+        await this.persistMessage(conversation, auth.userID!, 'user', message);
+      }
 
       const searchQuery = await this.retrieval.rewriteQuery(history, message);
       const retrieved = await this.retrieval.retrieve(searchQuery, scope);
@@ -114,7 +132,7 @@ export class HakimService {
       await this.streamAndFinalize(
         req,
         res,
-        userID,
+        auth.userID,
         conversation,
         modelMessages,
         retrieved.chunkIDs,
@@ -130,7 +148,7 @@ export class HakimService {
   }
 
   async streamExplainQuestion(
-    userID: number,
+    auth: HakimAuth,
     body: ExplainQuestionRequest,
     req: Request,
     res: Response,
@@ -151,26 +169,33 @@ export class HakimService {
     this.initSSE(res);
 
     try {
-      const quota = await this.quota.check(userID);
+      const quota = auth.ephemeral
+        ? this.unlimitedQuota()
+        : await this.quota.check(auth.userID!);
       if (quota.mode === 'insufficient') {
         this.sendLimit(res, quota);
         return this.end(res);
       }
 
-      const conversation = await this.createConversation(userID, {
-        scope_type: 'question',
-        lectureID: scope.lectureID ?? null,
-        courseID: scope.courseID ?? null,
-        title: body.questionID ? `شرح سؤال #${body.questionID}` : 'شرح سؤال',
-      });
+      const conversation = auth.ephemeral
+        ? null
+        : await this.createConversation(auth.userID!, {
+            scope_type: 'question',
+            lectureID: scope.lectureID ?? null,
+            courseID: scope.courseID ?? null,
+            title: body.questionID ? `شرح سؤال #${body.questionID}` : 'شرح سؤال',
+          });
 
       this.sendEvent(res, {
         type: 'start',
-        conversationID: conversation.conversationID,
+        conversationID: conversation?.conversationID ?? null,
+        ephemeral: auth.ephemeral,
       });
 
       const userPrompt = buildMcqUserPrompt(body);
-      await this.persistMessage(conversation, userID, 'user', userPrompt);
+      if (conversation) {
+        await this.persistMessage(conversation, auth.userID!, 'user', userPrompt);
+      }
 
       const searchText = `${body.body}\n${body.answers.map((a) => a.content).join('\n')}`;
       const retrieved = await this.retrieval.retrieve(searchText, scope);
@@ -184,7 +209,7 @@ export class HakimService {
       await this.streamAndFinalize(
         req,
         res,
-        userID,
+        auth.userID,
         conversation,
         modelMessages,
         retrieved.chunkIDs,
@@ -199,7 +224,7 @@ export class HakimService {
     }
   }
 
-  // ─── Conversation read endpoints ─────────────────────────────────────────
+  // ─── Conversation read endpoints (real users only) ───────────────────────
 
   async listConversations(userID: number) {
     const conversations = await this.supabase.select(
@@ -239,8 +264,8 @@ export class HakimService {
   private async streamAndFinalize(
     req: Request,
     res: Response,
-    userID: number,
-    conversation: ConversationRow,
+    userID: number | null,
+    conversation: ConversationRow | null,
     modelMessages: ChatMessage[],
     contextChunkIDs: number[],
     quota: QuotaDecision,
@@ -262,40 +287,44 @@ export class HakimService {
         this.sendEvent(res, { type: 'token', value: delta });
       }
 
-      // Stream completed normally — persist the answer and settle the charge.
-      const saved = await this.persistMessage(
-        conversation,
-        userID,
-        'assistant',
-        assistantText,
-        {
-          context_chunk_ids: contextChunkIDs,
-          charged_points: quota.mode === 'charged' ? quota.cost : 0,
-          usage: getUsage(),
-        },
-      );
-      await this.touchConversation(conversation.conversationID);
-      if (quota.mode === 'charged') {
+      // Stream completed normally — persist the answer (real users) and settle
+      // the charge. Ephemeral admin tests have no conversation, so they skip it.
+      let saved: { messageID: number } | null = null;
+      if (conversation) {
+        saved = await this.persistMessage(
+          conversation,
+          userID!,
+          'assistant',
+          assistantText,
+          {
+            context_chunk_ids: contextChunkIDs,
+            charged_points: quota.mode === 'charged' ? quota.cost : 0,
+            usage: getUsage(),
+          },
+        );
+        await this.touchConversation(conversation.conversationID);
+      }
+      if (quota.mode === 'charged' && userID != null) {
         await this.quota.recordUsage(userID, quota.cost);
       }
       finalized = true;
 
       this.sendEvent(res, {
         type: 'done',
-        conversationID: conversation.conversationID,
+        conversationID: conversation?.conversationID ?? null,
         messageID: saved?.messageID ?? null,
       });
       this.end(res);
     } catch (err: any) {
       // Aborted (client disconnect) or generation error after we may have charged.
-      if (quota.mode === 'charged') {
+      if (quota.mode === 'charged' && userID != null) {
         await this.quota.refund(userID, quota.cost);
       }
       // Keep a coherent history if we got partial text; it was effectively free.
-      if (assistantText.trim().length > 0) {
+      if (conversation && assistantText.trim().length > 0) {
         await this.persistMessage(
           conversation,
-          userID,
+          userID!,
           'assistant',
           assistantText,
           {
@@ -362,6 +391,23 @@ export class HakimService {
     return rows.reverse().map((r) => ({ role: r.role, content: r.content }));
   }
 
+  /** Sanitise and cap client-supplied history (ephemeral mode only). */
+  private clientHistory(
+    history: ChatRequest['history'],
+  ): ChatMessage[] {
+    if (!Array.isArray(history)) return [];
+    return history
+      .filter(
+        (m) =>
+          m &&
+          (m.role === 'user' || m.role === 'assistant') &&
+          typeof m.content === 'string' &&
+          m.content.trim().length > 0,
+      )
+      .slice(-HISTORY_LIMIT)
+      .map((m) => ({ role: m.role, content: m.content }));
+  }
+
   private async persistMessage(
     conversation: ConversationRow,
     userID: number,
@@ -394,6 +440,10 @@ export class HakimService {
   private makeTitle(message: string): string {
     const trimmed = message.replace(/\s+/g, ' ').trim();
     return trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed;
+  }
+
+  private unlimitedQuota(): QuotaDecision {
+    return { mode: 'free', cost: 0, usesToday: 0, freeLimit: 0 };
   }
 
   // ─── SSE helpers ─────────────────────────────────────────────────────────

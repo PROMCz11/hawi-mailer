@@ -10,6 +10,11 @@ export interface ChatRequest {
   conversationID?: number;
   message: string;
   scope?: ChatScope;
+  /**
+   * Prior turns supplied by the client. Only used in ephemeral mode (admin test
+   * page), where nothing is persisted server-side so history can't be loaded.
+   */
+  history?: { role: 'user' | 'assistant'; content: string }[];
 }
 
 export interface ExplainQuestionRequest {
