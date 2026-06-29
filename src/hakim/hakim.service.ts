@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { SupabaseService } from '../supabase/supabase.service';
 import { OpenAiService, ChatMessage } from './openai.service';
@@ -17,6 +18,7 @@ import {
   buildMcqUserPrompt,
 } from './hakim.prompts';
 import { ChatRequest, ExplainQuestionRequest } from './dto/hakim.dto';
+import { HAKIM_MODELS, HakimModelInfo } from './models';
 
 /**
  * Who is making the request. `ephemeral` requests (super/ambassador admins on
@@ -47,13 +49,39 @@ const HISTORY_LIMIT = 10;
 @Injectable()
 export class HakimService {
   private readonly logger = new Logger(HakimService.name);
+  private readonly userModelSelection: boolean;
 
   constructor(
     private readonly supabase: SupabaseService,
     private readonly openai: OpenAiService,
     private readonly retrieval: RetrievalService,
     private readonly quota: QuotaService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.userModelSelection =
+      (configService.get<string>('HAKIM_USER_MODEL_SELECTION') ?? 'false') ===
+      'true';
+  }
+
+  /** Models available to the caller + which one is the default. */
+  listModels(auth: HakimAuth) {
+    const selectable = auth.ephemeral || this.userModelSelection;
+    return {
+      models: HAKIM_MODELS,
+      default: this.openai.resolveModel().id,
+      selectable,
+    };
+  }
+
+  /**
+   * Pick the answer model. Selection is locked unless the caller is an admin
+   * (ephemeral) or user-selection has been globally enabled; otherwise the
+   * requested model is ignored and the default is used.
+   */
+  private resolveModel(auth: HakimAuth, requested?: string): HakimModelInfo {
+    const allowed = auth.ephemeral || this.userModelSelection;
+    return this.openai.resolveModel(allowed ? requested : undefined);
+  }
 
   // ─── Public SSE endpoints ────────────────────────────────────────────────
 
@@ -70,6 +98,7 @@ export class HakimService {
       lectureID: body.scope?.lectureID ?? null,
       courseID: body.scope?.courseID ?? null,
     };
+    const model = this.resolveModel(auth, body.model);
 
     // Resolve conversation (verifying ownership) before committing to SSE, so a
     // 404/403 returns a normal HTTP error instead of an event-stream error.
@@ -113,6 +142,8 @@ export class HakimService {
         type: 'start',
         conversationID: conversation?.conversationID ?? null,
         ephemeral: auth.ephemeral,
+        model: model.id,
+        thinking: model.thinking,
       });
 
       if (conversation) {
@@ -137,6 +168,7 @@ export class HakimService {
         modelMessages,
         retrieved.chunkIDs,
         quota,
+        model,
       );
     } catch (err: any) {
       this.logger.error(`streamChat failed: ${err?.message}`);
@@ -165,6 +197,7 @@ export class HakimService {
       lectureID: body.lectureID ?? null,
       courseID: body.courseID ?? null,
     };
+    const model = this.resolveModel(auth, body.model);
 
     this.initSSE(res);
 
@@ -183,18 +216,27 @@ export class HakimService {
             scope_type: 'question',
             lectureID: scope.lectureID ?? null,
             courseID: scope.courseID ?? null,
-            title: body.questionID ? `شرح سؤال #${body.questionID}` : 'شرح سؤال',
+            title: body.questionID
+              ? `شرح سؤال #${body.questionID}`
+              : 'شرح سؤال',
           });
 
       this.sendEvent(res, {
         type: 'start',
         conversationID: conversation?.conversationID ?? null,
         ephemeral: auth.ephemeral,
+        model: model.id,
+        thinking: model.thinking,
       });
 
       const userPrompt = buildMcqUserPrompt(body);
       if (conversation) {
-        await this.persistMessage(conversation, auth.userID!, 'user', userPrompt);
+        await this.persistMessage(
+          conversation,
+          auth.userID!,
+          'user',
+          userPrompt,
+        );
       }
 
       const searchText = `${body.body}\n${body.answers.map((a) => a.content).join('\n')}`;
@@ -214,6 +256,7 @@ export class HakimService {
         modelMessages,
         retrieved.chunkIDs,
         quota,
+        model,
       );
     } catch (err: any) {
       this.logger.error(`streamExplainQuestion failed: ${err?.message}`);
@@ -269,22 +312,30 @@ export class HakimService {
     modelMessages: ChatMessage[],
     contextChunkIDs: number[],
     quota: QuotaDecision,
+    model: HakimModelInfo,
   ): Promise<void> {
     const controller = new AbortController();
     const onClose = () => controller.abort();
     req.on('close', onClose);
 
     let assistantText = '';
+    let reasoningText = '';
     let finalized = false;
 
     try {
       const { stream, getUsage } = await this.openai.chatStream(modelMessages, {
+        model,
         signal: controller.signal,
       });
 
       for await (const delta of stream) {
-        assistantText += delta;
-        this.sendEvent(res, { type: 'token', value: delta });
+        if (delta.kind === 'reasoning') {
+          reasoningText += delta.value;
+          this.sendEvent(res, { type: 'reasoning', value: delta.value });
+        } else {
+          assistantText += delta.value;
+          this.sendEvent(res, { type: 'token', value: delta.value });
+        }
       }
 
       // Stream completed normally — persist the answer (real users) and settle
@@ -299,7 +350,7 @@ export class HakimService {
           {
             context_chunk_ids: contextChunkIDs,
             charged_points: quota.mode === 'charged' ? quota.cost : 0,
-            usage: getUsage(),
+            usage: this.buildUsage(getUsage(), model, reasoningText),
           },
         );
         await this.touchConversation(conversation.conversationID);
@@ -392,9 +443,7 @@ export class HakimService {
   }
 
   /** Sanitise and cap client-supplied history (ephemeral mode only). */
-  private clientHistory(
-    history: ChatRequest['history'],
-  ): ChatMessage[] {
+  private clientHistory(history: ChatRequest['history']): ChatMessage[] {
     if (!Array.isArray(history)) return [];
     return history
       .filter(
@@ -444,6 +493,24 @@ export class HakimService {
 
   private unlimitedQuota(): QuotaDecision {
     return { mode: 'free', cost: 0, usesToday: 0, freeLimit: 0 };
+  }
+
+  /**
+   * Assemble the message `usage` jsonb: token counts plus the model that
+   * answered and (for thinking models) the captured chain-of-thought, so it
+   * isn't lost even though we don't surface it to regular users yet.
+   */
+  private buildUsage(
+    tokenUsage: Record<string, number> | null,
+    model: HakimModelInfo,
+    reasoning: string,
+  ): Record<string, any> {
+    const usage: Record<string, any> = {
+      ...(tokenUsage ?? {}),
+      model: model.id,
+    };
+    if (reasoning.trim().length > 0) usage.reasoning = reasoning;
+    return usage;
   }
 
   // ─── SSE helpers ─────────────────────────────────────────────────────────

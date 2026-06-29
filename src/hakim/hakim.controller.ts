@@ -40,6 +40,14 @@ export class HakimController {
     await this.hakim.streamExplainQuestion(this.authOf(req), body, req, res);
   }
 
+  // Plain JSON — wrapped by the global JSend interceptor. Available to both real
+  // users and admin testers; `selectable` tells the client whether the picker
+  // should be enabled (admins / flag-on) or shown disabled.
+  @Get('models')
+  listModels(@Req() req: AuthedRequest) {
+    return this.hakim.listModels(this.authOf(req));
+  }
+
   // Plain JSON — wrapped by the global JSend interceptor. History lives under a
   // real user account, so ephemeral admin testers have nothing to list.
   @Get('conversations')

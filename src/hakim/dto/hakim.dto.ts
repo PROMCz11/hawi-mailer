@@ -11,6 +11,11 @@ export interface ChatRequest {
   message: string;
   scope?: ChatScope;
   /**
+   * Requested answer model id (see models.ts). Honoured for admins now; for
+   * regular users it's ignored until HAKIM_USER_MODEL_SELECTION is enabled.
+   */
+  model?: string;
+  /**
    * Prior turns supplied by the client. Only used in ephemeral mode (admin test
    * page), where nothing is persisted server-side so history can't be loaded.
    */
@@ -24,4 +29,6 @@ export interface ExplainQuestionRequest {
   explanation?: string;
   lectureID?: number | null;
   courseID?: number | null;
+  /** Requested answer model id (admin-gated; see ChatRequest.model). */
+  model?: string;
 }
