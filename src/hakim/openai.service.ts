@@ -26,7 +26,6 @@ export class OpenAiService {
   readonly embeddingModel: string;
   readonly answerModel: string;
   readonly rewriteModel: string;
-  readonly chunkModel: string;
 
   constructor(configService: ConfigService) {
     this.client = new OpenAI({
@@ -39,8 +38,6 @@ export class OpenAiService {
       configService.get<string>('HAKIM_ANSWER_MODEL') ?? 'gpt-5-mini';
     this.rewriteModel =
       configService.get<string>('HAKIM_REWRITE_MODEL') ?? 'gpt-5-nano';
-    this.chunkModel =
-      configService.get<string>('HAKIM_CHUNK_MODEL') ?? 'gpt-5-mini';
   }
 
   async embed(input: string): Promise<number[]> {
@@ -62,43 +59,6 @@ export class OpenAiService {
     return res.data
       .sort((a, b) => a.index - b.index)
       .map((item) => item.embedding);
-  }
-
-  /**
-   * Split a lecture into RAG-ready chunks using the same prompt + structured
-   * output the original SvelteKit chunking script used.
-   */
-  async chunkLecture(content: string, systemPrompt: string): Promise<string[]> {
-    const res = await this.client.chat.completions.create({
-      model: this.chunkModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content },
-      ],
-      reasoning_effort: 'minimal',
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'lecture_chunks',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              chunks: { type: 'array', items: { type: 'string' } },
-            },
-            required: ['chunks'],
-          },
-        },
-      },
-    });
-
-    const raw = res.choices[0]?.message?.content ?? '{"chunks":[]}';
-    const parsed = JSON.parse(raw) as { chunks?: unknown };
-    const chunks = Array.isArray(parsed.chunks) ? parsed.chunks : [];
-    return chunks
-      .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
-      .map((c) => c.trim());
   }
 
   /** Non-streaming completion. Used for the small structured rewrite call. */

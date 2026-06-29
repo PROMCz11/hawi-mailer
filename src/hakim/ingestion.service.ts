@@ -1,7 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../supabase/supabase.service';
 import { OpenAiService } from './openai.service';
-import { CHUNKING_SYSTEM_PROMPT } from './chunking.prompt';
+import {
+  ChunkOptions,
+  DEFAULT_CHUNK_OPTIONS,
+  chunkLectureText,
+} from './chunker';
 
 export interface CourseStatus {
   courseID: number;
@@ -34,11 +39,31 @@ const INSERT_BATCH_SIZE = 50;
 @Injectable()
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
+  private readonly chunkOptions: ChunkOptions;
 
   constructor(
     private readonly supabase: SupabaseService,
     private readonly openai: OpenAiService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.chunkOptions = {
+      targetChars:
+        parseInt(
+          configService.get<string>('HAKIM_CHUNK_TARGET_CHARS') ?? '',
+          10,
+        ) || DEFAULT_CHUNK_OPTIONS.targetChars,
+      maxChars:
+        parseInt(
+          configService.get<string>('HAKIM_CHUNK_MAX_CHARS') ?? '',
+          10,
+        ) || DEFAULT_CHUNK_OPTIONS.maxChars,
+      overlapChars:
+        parseInt(
+          configService.get<string>('HAKIM_CHUNK_OVERLAP_CHARS') ?? '',
+          10,
+        ) || DEFAULT_CHUNK_OPTIONS.overlapChars,
+    };
+  }
 
   async listCourses(): Promise<{ courses: CourseStatus[] }> {
     const courses = await this.supabase.rpc<CourseStatus[]>(
@@ -75,10 +100,7 @@ export class IngestionService {
       throw new BadRequestException('Lecture has no content to chunk');
     }
 
-    const chunks = await this.openai.chunkLecture(
-      lecture.content,
-      CHUNKING_SYSTEM_PROMPT,
-    );
+    const chunks = chunkLectureText(lecture.content, this.chunkOptions);
 
     if (chunks.length === 0) {
       throw new BadRequestException('Chunking produced no chunks');
