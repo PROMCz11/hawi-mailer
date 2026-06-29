@@ -109,7 +109,11 @@ export class OpenAiService {
    */
   async chatStream(
     messages: ChatMessage[],
-    opts: { model: HakimModelInfo; signal?: AbortSignal },
+    opts: {
+      model: HakimModelInfo;
+      thinkingEnabled?: boolean;
+      signal?: AbortSignal;
+    },
   ): Promise<StreamResult> {
     const model = opts.model;
     const client =
@@ -123,10 +127,10 @@ export class OpenAiService {
       stream: true,
       stream_options: { include_usage: true },
     };
-    // DeepSeek V4: thinking is on by default, but we set it explicitly so the
-    // reasoning stream is guaranteed regardless of account-level defaults.
+    // DeepSeek V4 supports toggling thinking per-request. We pass the explicit
+    // type so behaviour matches the caller's intent regardless of account defaults.
     if (model.provider === 'deepseek') {
-      body.thinking = { type: 'enabled' };
+      body.thinking = { type: opts.thinkingEnabled ? 'enabled' : 'disabled' };
     }
 
     const completion = await client.chat.completions.create(

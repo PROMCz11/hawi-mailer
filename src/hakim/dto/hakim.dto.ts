@@ -16,6 +16,12 @@ export interface ChatRequest {
    */
   model?: string;
   /**
+   * Enable DeepSeek thinking mode for this request. Only applies to models that
+   * support it (provider === 'deepseek'). Honoured for admins now; ignored for
+   * regular users until HAKIM_USER_THINKING_SELECTION is enabled.
+   */
+  thinking?: boolean;
+  /**
    * Prior turns supplied by the client. Only used in ephemeral mode (admin test
    * page), where nothing is persisted server-side so history can't be loaded.
    */
@@ -31,4 +37,6 @@ export interface ExplainQuestionRequest {
   courseID?: number | null;
   /** Requested answer model id (admin-gated; see ChatRequest.model). */
   model?: string;
+  /** Enable DeepSeek thinking mode (admin-gated; see ChatRequest.thinking). */
+  thinking?: boolean;
 }

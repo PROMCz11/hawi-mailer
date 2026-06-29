@@ -50,6 +50,8 @@ const HISTORY_LIMIT = 10;
 export class HakimService {
   private readonly logger = new Logger(HakimService.name);
   private readonly userModelSelection: boolean;
+  private readonly userThinkingSelection: boolean;
+  private readonly defaultThinking: boolean;
 
   constructor(
     private readonly supabase: SupabaseService,
@@ -61,15 +63,24 @@ export class HakimService {
     this.userModelSelection =
       (configService.get<string>('HAKIM_USER_MODEL_SELECTION') ?? 'false') ===
       'true';
+    this.userThinkingSelection =
+      (configService.get<string>('HAKIM_USER_THINKING_SELECTION') ??
+        'false') === 'true';
+    this.defaultThinking =
+      (configService.get<string>('HAKIM_DEFAULT_THINKING') ?? 'false') ===
+      'true';
   }
 
   /** Models available to the caller + which one is the default. */
   listModels(auth: HakimAuth) {
     const selectable = auth.ephemeral || this.userModelSelection;
+    const thinkingSelectable = auth.ephemeral || this.userThinkingSelection;
     return {
       models: HAKIM_MODELS,
       default: this.openai.resolveModel().id,
       selectable,
+      defaultThinking: this.defaultThinking,
+      thinkingSelectable,
     };
   }
 
@@ -81,6 +92,18 @@ export class HakimService {
   private resolveModel(auth: HakimAuth, requested?: string): HakimModelInfo {
     const allowed = auth.ephemeral || this.userModelSelection;
     return this.openai.resolveModel(allowed ? requested : undefined);
+  }
+
+  /**
+   * Whether to enable thinking for this request. Only meaningful on DeepSeek
+   * models. Admins can choose; regular users are locked to the default until
+   * HAKIM_USER_THINKING_SELECTION is enabled.
+   */
+  private resolveThinking(auth: HakimAuth, requested?: boolean): boolean {
+    const allowed = auth.ephemeral || this.userThinkingSelection;
+    return allowed && requested !== undefined
+      ? requested
+      : this.defaultThinking;
   }
 
   // ─── Public SSE endpoints ────────────────────────────────────────────────
@@ -99,6 +122,7 @@ export class HakimService {
       courseID: body.scope?.courseID ?? null,
     };
     const model = this.resolveModel(auth, body.model);
+    const thinkingEnabled = this.resolveThinking(auth, body.thinking);
 
     // Resolve conversation (verifying ownership) before committing to SSE, so a
     // 404/403 returns a normal HTTP error instead of an event-stream error.
@@ -143,7 +167,7 @@ export class HakimService {
         conversationID: conversation?.conversationID ?? null,
         ephemeral: auth.ephemeral,
         model: model.id,
-        thinking: model.thinking,
+        thinking: model.thinking && thinkingEnabled,
       });
 
       if (conversation) {
@@ -169,6 +193,7 @@ export class HakimService {
         retrieved.chunkIDs,
         quota,
         model,
+        thinkingEnabled,
       );
     } catch (err: any) {
       this.logger.error(`streamChat failed: ${err?.message}`);
@@ -198,6 +223,7 @@ export class HakimService {
       courseID: body.courseID ?? null,
     };
     const model = this.resolveModel(auth, body.model);
+    const thinkingEnabled = this.resolveThinking(auth, body.thinking);
 
     this.initSSE(res);
 
@@ -226,7 +252,7 @@ export class HakimService {
         conversationID: conversation?.conversationID ?? null,
         ephemeral: auth.ephemeral,
         model: model.id,
-        thinking: model.thinking,
+        thinking: model.thinking && thinkingEnabled,
       });
 
       const userPrompt = buildMcqUserPrompt(body);
@@ -257,6 +283,7 @@ export class HakimService {
         retrieved.chunkIDs,
         quota,
         model,
+        thinkingEnabled,
       );
     } catch (err: any) {
       this.logger.error(`streamExplainQuestion failed: ${err?.message}`);
@@ -313,6 +340,7 @@ export class HakimService {
     contextChunkIDs: number[],
     quota: QuotaDecision,
     model: HakimModelInfo,
+    thinkingEnabled: boolean,
   ): Promise<void> {
     const controller = new AbortController();
     const onClose = () => controller.abort();
@@ -325,6 +353,7 @@ export class HakimService {
     try {
       const { stream, getUsage } = await this.openai.chatStream(modelMessages, {
         model,
+        thinkingEnabled,
         signal: controller.signal,
       });
 
