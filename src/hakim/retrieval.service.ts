@@ -102,10 +102,19 @@ export class RetrievalService {
     }
   }
 
-  /** Embed the query, search the corpus, and assemble token-budgeted context. */
+  /**
+   * Embed the query, search the corpus, and assemble token-budgeted context.
+   * `enforceSupported` gates the match_lecture_chunks DB-level filter on
+   * hawi_course.hakim_supported: true for real users (the only structural
+   * guarantee that an unsupported course's content is never returned, even on
+   * unscoped queries where a chunk could match by similarity alone), false
+   * for ephemeral admin testers (/control/hakim), who can search across any
+   * ingested course regardless of publish status.
+   */
   async retrieve(
     searchQuery: string,
     scope: RetrievalScope = {},
+    enforceSupported = true,
   ): Promise<RetrievedContext> {
     let chunkIDs: number[] = [];
     let contextText = NO_CONTEXT;
@@ -120,6 +129,7 @@ export class RetrievalService {
           match_count: this.matchCount,
           lecture_id: scope.lectureID ?? null,
           course_id: scope.courseID ?? null,
+          p_enforce_supported: enforceSupported,
         },
       );
 

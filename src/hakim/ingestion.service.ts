@@ -88,10 +88,10 @@ export class IngestionService {
     lectureID: number;
     chunkCount: number;
   }> {
-    const lecture = await this.supabase.selectOne<{ content: string | null }>(
-      'hawi_lecture',
-      `lectureID=eq.${lectureID}&select=content`,
-    );
+    const lecture = await this.supabase.selectOne<{
+      content: string | null;
+      courseID: number;
+    }>('hawi_lecture', `lectureID=eq.${lectureID}&select=content,courseID`);
 
     if (!lecture) {
       throw new BadRequestException('Lecture not found');
@@ -113,6 +113,7 @@ export class IngestionService {
 
     const rows = chunks.map((content, i) => ({
       lectureID,
+      courseID: lecture.courseID,
       content,
       embedding: vectors[i],
     }));

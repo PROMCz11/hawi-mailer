@@ -72,23 +72,50 @@ export class HakimService {
   }
 
   /**
-   * courseIDs that actually have embedded lecture chunks, i.e. Hakim can
-   * ground answers in real content. Used by the app to filter the user's
-   * owned-bank courses down to ones worth offering as a chat scope — without
-   * this, a user could scope a conversation to a course nothing was ever
-   * ingested for and silently get an ungrounded answer with no indication
-   * anything was wrong. Open to any authenticated caller (not admin-gated
+   * courseIDs explicitly approved for user-facing Hakim (hawi_course.hakim_supported).
+   * Used by the app to filter the user's owned-bank courses down to ones
+   * worth offering as a chat scope — without this, a user could scope a
+   * conversation to a course Hakim doesn't serve and get rejected with no
+   * warning beforehand. Open to any authenticated caller (not admin-gated
    * like /hakim/ingestion/*) since it leaks no admin-only detail, just IDs.
+   * Distinct from ingestion status (chunk_count > 0, used by the admin-only
+   * /control/hakim* pages) — a course can be ingested without being
+   * published yet.
    */
   async supportedCourseIDs(): Promise<{ courseIDs: number[] }> {
-    const courses = await this.supabase.rpc<
-      { courseID: number; chunk_count: number }[]
-    >('get_hakim_course_status', {});
-    return {
-      courseIDs: (courses ?? [])
-        .filter((c) => Number(c.chunk_count) > 0)
-        .map((c) => Number(c.courseID)),
-    };
+    const courses = await this.supabase.select<{ courseID: number }>(
+      'hawi_course',
+      'hakim_supported=eq.true&select=courseID',
+    );
+    return { courseIDs: courses.map((c) => Number(c.courseID)) };
+  }
+
+  /**
+   * Reject scoping to a courseID that hasn't been explicitly approved for
+   * users (hawi_course.hakim_supported). Only applies to real (non-ephemeral)
+   * callers — admin testers on /control/hakim can scope to any ingested
+   * course regardless of publish status. Mirrors the quota "insufficient"
+   * early-return: sends a terminal SSE event and ends the stream before any
+   * quota check or message is persisted, so a rejected course never costs
+   * the user a free use or points. Returns true if the request was rejected
+   * (caller must stop).
+   */
+  private async rejectIfUnsupportedCourse(
+    auth: HakimAuth,
+    res: Response,
+    courseID: number | null | undefined,
+  ): Promise<boolean> {
+    if (auth.ephemeral || !courseID) return false;
+
+    const course = await this.supabase.selectOne<{
+      hakim_supported: boolean;
+    }>('hawi_course', `courseID=eq.${courseID}&select=hakim_supported`);
+
+    if (course?.hakim_supported) return false;
+
+    this.sendEvent(res, { type: 'unsupported_course', courseID });
+    this.end(res);
+    return true;
   }
 
   /** Models available to the caller + which one is the default. */
@@ -159,6 +186,10 @@ export class HakimService {
     this.initSSE(res);
 
     try {
+      if (await this.rejectIfUnsupportedCourse(auth, res, scope.courseID)) {
+        return;
+      }
+
       const quota = auth.ephemeral
         ? this.unlimitedQuota()
         : await this.quota.check(auth.userID!);
@@ -199,7 +230,11 @@ export class HakimService {
       }
 
       const searchQuery = await this.retrieval.rewriteQuery(history, message);
-      const retrieved = await this.retrieval.retrieve(searchQuery, scope);
+      const retrieved = await this.retrieval.retrieve(
+        searchQuery,
+        scope,
+        !auth.ephemeral,
+      );
 
       const modelMessages: ChatMessage[] = [
         { role: 'system', content: HAKIM_SYSTEM_PROMPT },
@@ -252,6 +287,10 @@ export class HakimService {
     this.initSSE(res);
 
     try {
+      if (await this.rejectIfUnsupportedCourse(auth, res, scope.courseID)) {
+        return;
+      }
+
       const quota = auth.ephemeral
         ? this.unlimitedQuota()
         : await this.quota.check(auth.userID!);
@@ -290,7 +329,11 @@ export class HakimService {
       }
 
       const searchText = `${body.body}\n${body.answers.map((a) => a.content).join('\n')}`;
-      const retrieved = await this.retrieval.retrieve(searchText, scope);
+      const retrieved = await this.retrieval.retrieve(
+        searchText,
+        scope,
+        !auth.ephemeral,
+      );
 
       const modelMessages: ChatMessage[] = [
         { role: 'system', content: HAKIM_SYSTEM_PROMPT },
