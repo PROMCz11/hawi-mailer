@@ -9,7 +9,7 @@ async function bootstrap() {
   // service has to accept cross-origin requests carrying the user Bearer token.
   app.enableCors({
     origin: true, // reflect the request origin (capacitor://localhost, http://localhost, prod web domain)
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'authtoken'],
   });
   app.useGlobalInterceptors(new JsendInterceptor());

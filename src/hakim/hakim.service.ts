@@ -316,6 +316,23 @@ export class HakimService {
     return { messages };
   }
 
+  async renameConversation(
+    userID: number,
+    conversationID: number,
+    title: string,
+  ) {
+    await this.requireOwnedConversation(conversationID, userID);
+    const clean = (title ?? '').replace(/\s+/g, ' ').trim();
+    if (!clean) throw new BadRequestException('Title cannot be empty');
+    const capped = clean.length > 80 ? clean.slice(0, 80) : clean;
+    await this.supabase.update(
+      'hawi_hakim_conversation',
+      `conversationID=eq.${conversationID}`,
+      { title: capped, updated_at: new Date().toISOString() },
+    );
+    return { conversationID, title: capped };
+  }
+
   async deleteConversation(userID: number, conversationID: number) {
     await this.requireOwnedConversation(conversationID, userID);
     await this.supabase.delete(

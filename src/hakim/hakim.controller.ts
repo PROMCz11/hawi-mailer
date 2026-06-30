@@ -6,6 +6,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Req,
   Res,
@@ -61,6 +62,19 @@ export class HakimController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.hakim.getConversation(this.requireUser(req), id);
+  }
+
+  @Patch('conversations/:id')
+  renameConversation(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { title?: string },
+  ) {
+    return this.hakim.renameConversation(
+      this.requireUser(req),
+      id,
+      body?.title ?? '',
+    );
   }
 
   @Delete('conversations/:id')
