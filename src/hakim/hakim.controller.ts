@@ -49,6 +49,14 @@ export class HakimController {
     return this.hakim.listModels(this.authOf(req));
   }
 
+  // courseIDs that actually have embedded content. The app uses this to filter
+  // a user's owned-bank courses down to ones Hakim can ground answers in,
+  // since /hakim/ingestion/courses (which carries the same info) is admin-only.
+  @Get('courses')
+  supportedCourses() {
+    return this.hakim.supportedCourseIDs();
+  }
+
   // Plain JSON — wrapped by the global JSend interceptor. History lives under a
   // real user account, so ephemeral admin testers have nothing to list.
   @Get('conversations')

@@ -71,6 +71,26 @@ export class HakimService {
       'true';
   }
 
+  /**
+   * courseIDs that actually have embedded lecture chunks, i.e. Hakim can
+   * ground answers in real content. Used by the app to filter the user's
+   * owned-bank courses down to ones worth offering as a chat scope — without
+   * this, a user could scope a conversation to a course nothing was ever
+   * ingested for and silently get an ungrounded answer with no indication
+   * anything was wrong. Open to any authenticated caller (not admin-gated
+   * like /hakim/ingestion/*) since it leaks no admin-only detail, just IDs.
+   */
+  async supportedCourseIDs(): Promise<{ courseIDs: number[] }> {
+    const courses = await this.supabase.rpc<
+      { courseID: number; chunk_count: number }[]
+    >('get_hakim_course_status', {});
+    return {
+      courseIDs: (courses ?? [])
+        .filter((c) => Number(c.chunk_count) > 0)
+        .map((c) => Number(c.courseID)),
+    };
+  }
+
   /** Models available to the caller + which one is the default. */
   listModels(auth: HakimAuth) {
     const selectable = auth.ephemeral || this.userModelSelection;
@@ -117,13 +137,6 @@ export class HakimService {
     const message = (body?.message ?? '').trim();
     if (!message) throw new BadRequestException('Empty message');
 
-    const scope: RetrievalScope = {
-      lectureID: body.scope?.lectureID ?? null,
-      courseID: body.scope?.courseID ?? null,
-    };
-    const model = this.resolveModel(auth, body.model);
-    const thinkingEnabled = this.resolveThinking(auth, body.thinking);
-
     // Resolve conversation (verifying ownership) before committing to SSE, so a
     // 404/403 returns a normal HTTP error instead of an event-stream error.
     // Ephemeral (admin) requests never touch persisted conversations.
@@ -131,6 +144,17 @@ export class HakimService {
       body.conversationID && !auth.ephemeral
         ? await this.requireOwnedConversation(body.conversationID, auth.userID!)
         : null;
+
+    // A resumed conversation keeps its original scope unless the client
+    // explicitly sends one for this turn — otherwise reopening a course-scoped
+    // chat and asking a follow-up would silently fall back to unscoped/general
+    // retrieval (the app's scope selector resets per session).
+    const scope: RetrievalScope = {
+      lectureID: body.scope?.lectureID ?? conversation?.lectureID ?? null,
+      courseID: body.scope?.courseID ?? conversation?.courseID ?? null,
+    };
+    const model = this.resolveModel(auth, body.model);
+    const thinkingEnabled = this.resolveThinking(auth, body.thinking);
 
     this.initSSE(res);
 
@@ -306,14 +330,30 @@ export class HakimService {
   }
 
   async getConversation(userID: number, conversationID: number) {
-    await this.requireOwnedConversation(conversationID, userID);
+    const conversation = await this.requireOwnedConversation(
+      conversationID,
+      userID,
+    );
     const messages = await this.supabase.select(
       'hawi_hakim_message',
       `conversationID=eq.${conversationID}` +
         `&select=messageID,role,content,context_chunk_ids,charged_points,created_at` +
         `&order=created_at.asc`,
     );
-    return { messages };
+    // Scope is included so the client can restore the course/lecture selector
+    // when reopening a conversation — without it, resuming a scoped chat in
+    // the UI looks unscoped even though the server still retrieves correctly
+    // (streamChat falls back to the conversation's persisted scope).
+    return {
+      conversation: {
+        conversationID: conversation.conversationID,
+        title: conversation.title,
+        scope_type: conversation.scope_type,
+        lectureID: conversation.lectureID,
+        courseID: conversation.courseID,
+      },
+      messages,
+    };
   }
 
   async renameConversation(
