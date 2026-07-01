@@ -118,6 +118,29 @@ export class HakimService {
     return true;
   }
 
+  /**
+   * Reject a chat turn that has no courseID at all. Only applies to real
+   * (non-ephemeral) callers — admin testers on /control/hakim can still run
+   * unscoped test conversations. The app now requires users to pick a course
+   * before starting or resuming a conversation, but this is the actual gate:
+   * without it, a stale client or a direct API call could still create/
+   * continue a general/unscoped conversation. Mirrors rejectIfUnsupportedCourse
+   * — sends a terminal SSE event and ends the stream before quota or
+   * persistence, so a rejected turn never costs the user a free use or points.
+   * Returns true if the request was rejected (caller must stop).
+   */
+  private rejectIfCourseRequired(
+    auth: HakimAuth,
+    res: Response,
+    courseID: number | null | undefined,
+  ): boolean {
+    if (auth.ephemeral || courseID) return false;
+
+    this.sendEvent(res, { type: 'course_required' });
+    this.end(res);
+    return true;
+  }
+
   /** Models available to the caller + which one is the default. */
   listModels(auth: HakimAuth) {
     const selectable = auth.ephemeral || this.userModelSelection;
@@ -186,6 +209,10 @@ export class HakimService {
     this.initSSE(res);
 
     try {
+      if (this.rejectIfCourseRequired(auth, res, scope.courseID)) {
+        return;
+      }
+
       if (await this.rejectIfUnsupportedCourse(auth, res, scope.courseID)) {
         return;
       }
