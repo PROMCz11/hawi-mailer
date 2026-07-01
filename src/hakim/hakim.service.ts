@@ -15,7 +15,9 @@ import { QuotaService, QuotaDecision } from './quota.service';
 import {
   HAKIM_SYSTEM_PROMPT,
   buildContextMessage,
+  buildCourseContextMessage,
   buildMcqUserPrompt,
+  CourseContext,
 } from './hakim.prompts';
 import { ChatRequest, ExplainQuestionRequest } from './dto/hakim.dto';
 import { HAKIM_MODELS, HakimModelInfo } from './models';
@@ -141,6 +143,29 @@ export class HakimService {
     return true;
   }
 
+  /**
+   * Course/lecture/bank metadata for the course context system message.
+   * Fetched fresh every turn (course catalogs change rarely, but this keeps
+   * newly added lectures/banks visible immediately). Never throws — a failed
+   * lookup just means the turn proceeds without course context, since it's an
+   * enrichment on top of retrieval, not the retrieval path itself.
+   */
+  private async fetchCourseContext(
+    courseID: number | null | undefined,
+  ): Promise<CourseContext | null> {
+    if (!courseID) return null;
+    try {
+      const context = await this.supabase.rpc<CourseContext | null>(
+        'get_hakim_course_context',
+        { p_course_id: courseID },
+      );
+      return context ?? null;
+    } catch (err: any) {
+      this.logger.warn(`fetchCourseContext failed: ${err?.message}`);
+      return null;
+    }
+  }
+
   /** Models available to the caller + which one is the default. */
   listModels(auth: HakimAuth) {
     const selectable = auth.ephemeral || this.userModelSelection;
@@ -262,9 +287,11 @@ export class HakimService {
         scope,
         !auth.ephemeral,
       );
+      const courseContext = await this.fetchCourseContext(scope.courseID);
 
       const modelMessages: ChatMessage[] = [
         { role: 'system', content: HAKIM_SYSTEM_PROMPT },
+        ...(courseContext ? [buildCourseContextMessage(courseContext)] : []),
         ...history,
         buildContextMessage(retrieved.contextText),
         { role: 'user', content: message },

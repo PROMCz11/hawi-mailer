@@ -86,6 +86,76 @@ export function buildContextMessage(contextText: string): ChatMessage {
   };
 }
 
+export interface CourseContextLecture {
+  lectureID: number;
+  name: string;
+  number: number | null;
+  professor: string | null;
+}
+
+export interface CourseContextBank {
+  bankID: number;
+  name: string;
+  professors: string[] | null;
+  questionCount: number;
+}
+
+export interface CourseContext {
+  courseID: number;
+  name: string;
+  university: string | null;
+  faculty: string | null;
+  year: number | null;
+  semester: number | null;
+  lectures: CourseContextLecture[];
+  banks: CourseContextBank[];
+}
+
+/**
+ * Per-turn course metadata message. Injected fresh each turn (never
+ * persisted) right after HAKIM_SYSTEM_PROMPT, whenever the chat is scoped to
+ * a course, so Hakim knows what course it's in, who teaches it, what
+ * lectures are available (titles only, not content), and what question banks
+ * exist — without needing this baked into the static persona prompt.
+ */
+export function buildCourseContextMessage(course: CourseContext): ChatMessage {
+  const lines: string[] = [
+    `Course: ${course.name}`,
+    [course.university, course.faculty].filter(Boolean).join(' — ') || null,
+    course.year != null || course.semester != null
+      ? `Year ${course.year ?? '?'}, Semester ${course.semester ?? '?'}`
+      : null,
+  ].filter((l): l is string => !!l);
+
+  const professors = Array.from(
+    new Set(course.lectures.map((l) => l.professor).filter((p): p is string => !!p)),
+  );
+  if (professors.length) {
+    lines.push(`Professors: ${professors.join(', ')}`);
+  }
+
+  lines.push(
+    course.lectures.length
+      ? `Available lectures:\n${course.lectures
+          .map((l) => `${l.number ?? '-'}. ${l.name}`)
+          .join('\n')}`
+      : 'Available lectures: none ingested yet.',
+  );
+
+  lines.push(
+    course.banks.length
+      ? `Available question banks:\n${course.banks
+          .map((b) => `${b.name} — ${b.questionCount} questions`)
+          .join('\n')}`
+      : 'Available question banks: none.',
+  );
+
+  return {
+    role: 'system',
+    content: `Course metadata for the current chat (do not repeat this list verbatim to the student unless asked):\n${lines.join('\n')}`,
+  };
+}
+
 export interface McqInput {
   body: string;
   answers: { content: string; correct?: boolean }[];
