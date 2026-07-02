@@ -7,6 +7,7 @@ import {
   DEFAULT_CHUNK_OPTIONS,
   chunkLectureText,
 } from './chunker';
+import { coerceId } from '../util/coerce-id';
 
 export interface CourseStatus {
   courseID: number;
@@ -84,10 +85,14 @@ export class IngestionService {
   }
 
   /** Chunk + embed a single lecture and replace its chunks. */
-  async processLecture(lectureID: number): Promise<{
+  async processLecture(rawLectureID: number): Promise<{
     lectureID: number;
     chunkCount: number;
   }> {
+    const lectureID = coerceId(rawLectureID);
+    if (lectureID === null) {
+      throw new BadRequestException('Invalid lecture ID');
+    }
     const lecture = await this.supabase.selectOne<{
       content: string | null;
       courseID: number;
@@ -136,7 +141,11 @@ export class IngestionService {
   }
 
   /** Remove all Hakim chunks for a lecture (un-support it). */
-  async clearLecture(lectureID: number): Promise<{ lectureID: number }> {
+  async clearLecture(rawLectureID: number): Promise<{ lectureID: number }> {
+    const lectureID = coerceId(rawLectureID);
+    if (lectureID === null) {
+      throw new BadRequestException('Invalid lecture ID');
+    }
     await this.supabase.delete(
       'hawi_lecture_chunk',
       `lectureID=eq.${lectureID}`,

@@ -21,6 +21,7 @@ import {
 } from './hakim.prompts';
 import { ChatRequest, ExplainQuestionRequest } from './dto/hakim.dto';
 import { HAKIM_MODELS, HakimModelInfo } from './models';
+import { coerceId } from '../util/coerce-id';
 
 /**
  * Who is making the request. `ephemeral` requests (super/ambassador admins on
@@ -215,9 +216,15 @@ export class HakimService {
     // Resolve conversation (verifying ownership) before committing to SSE, so a
     // 404/403 returns a normal HTTP error instead of an event-stream error.
     // Ephemeral (admin) requests never touch persisted conversations.
+    // Coerce all client-supplied IDs to bare integers before they reach any
+    // PostgREST filter string (see coerceId — guards against filter injection).
+    const requestedConversationID = coerceId(body.conversationID);
     let conversation =
-      body.conversationID && !auth.ephemeral
-        ? await this.requireOwnedConversation(body.conversationID, auth.userID!)
+      requestedConversationID && !auth.ephemeral
+        ? await this.requireOwnedConversation(
+            requestedConversationID,
+            auth.userID!,
+          )
         : null;
 
     // A resumed conversation keeps its original scope unless the client
@@ -225,8 +232,8 @@ export class HakimService {
     // chat and asking a follow-up would silently fall back to unscoped/general
     // retrieval (the app's scope selector resets per session).
     const scope: RetrievalScope = {
-      lectureID: body.scope?.lectureID ?? conversation?.lectureID ?? null,
-      courseID: body.scope?.courseID ?? conversation?.courseID ?? null,
+      lectureID: coerceId(body.scope?.lectureID) ?? conversation?.lectureID ?? null,
+      courseID: coerceId(body.scope?.courseID) ?? conversation?.courseID ?? null,
     };
     const model = this.resolveModel(auth, body.model);
     const thinkingEnabled = this.resolveThinking(auth, body.thinking);
@@ -332,8 +339,8 @@ export class HakimService {
     }
 
     const scope: RetrievalScope = {
-      lectureID: body.lectureID ?? null,
-      courseID: body.courseID ?? null,
+      lectureID: coerceId(body.lectureID),
+      courseID: coerceId(body.courseID),
     };
     const model = this.resolveModel(auth, body.model);
     const thinkingEnabled = this.resolveThinking(auth, body.thinking);
