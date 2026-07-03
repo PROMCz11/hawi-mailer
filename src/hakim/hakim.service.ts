@@ -49,6 +49,14 @@ interface MessageRow {
 
 const HISTORY_LIMIT = 10;
 
+/**
+ * Message types the client may set on a user turn. Anything else collapses to
+ * 'text'. Kept in sync with the client registry (src/lib/hakim/messageTypes.js).
+ */
+const KNOWN_MESSAGE_TYPES = new Set(['text', 'question_explain']);
+/** Cap for the display-only `meta` jsonb — it's never sent to the model. */
+const MAX_META_BYTES = 4096;
+
 @Injectable()
 export class HakimService {
   private readonly logger = new Logger(HakimService.name);
@@ -237,6 +245,10 @@ export class HakimService {
     };
     const model = this.resolveModel(auth, body.model);
     const thinkingEnabled = this.resolveThinking(auth, body.thinking);
+    const { messageType, meta } = this.sanitizeMessageMeta(
+      body.messageType,
+      body.meta,
+    );
 
     this.initSSE(res);
 
@@ -265,14 +277,17 @@ export class HakimService {
 
       if (!auth.ephemeral && !conversation) {
         conversation = await this.createConversation(auth.userID!, {
-          scope_type: scope.lectureID
-            ? 'lecture'
-            : scope.courseID
-              ? 'course'
-              : 'general',
+          scope_type:
+            messageType === 'question_explain'
+              ? 'question'
+              : scope.lectureID
+                ? 'lecture'
+                : scope.courseID
+                  ? 'course'
+                  : 'general',
           lectureID: scope.lectureID ?? null,
           courseID: scope.courseID ?? null,
-          title: this.makeTitle(message),
+          title: this.titleForNewConversation(messageType, meta, message),
         });
       }
 
@@ -285,7 +300,10 @@ export class HakimService {
       });
 
       if (conversation) {
-        await this.persistMessage(conversation, auth.userID!, 'user', message);
+        await this.persistMessage(conversation, auth.userID!, 'user', message, {
+          message_type: messageType,
+          meta,
+        });
       }
 
       const searchQuery = await this.retrieval.rewriteQuery(history, message);
@@ -441,7 +459,7 @@ export class HakimService {
     const messages = await this.supabase.select(
       'hawi_hakim_message',
       `conversationID=eq.${conversationID}` +
-        `&select=messageID,role,content,context_chunk_ids,charged_points,created_at` +
+        `&select=messageID,role,content,message_type,meta,context_chunk_ids,charged_points,created_at` +
         `&order=created_at.asc`,
     );
     // Scope is included so the client can restore the course/lecture selector
@@ -679,6 +697,58 @@ export class HakimService {
   private makeTitle(message: string): string {
     const trimmed = message.replace(/\s+/g, ' ').trim();
     return trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed;
+  }
+
+  /**
+   * Validate the client-supplied message type + meta for a user turn. Unknown
+   * or 'text' types collapse to plain text with no meta. `meta` is kept only
+   * for a known custom type, must be a plain object, and is size-capped — it's
+   * display-only (never sent to the model), so it just needs to be small and
+   * well-formed.
+   */
+  private sanitizeMessageMeta(
+    messageType?: string,
+    meta?: Record<string, unknown>,
+  ): { messageType: string; meta: Record<string, unknown> | null } {
+    if (
+      !messageType ||
+      messageType === 'text' ||
+      !KNOWN_MESSAGE_TYPES.has(messageType)
+    ) {
+      return { messageType: 'text', meta: null };
+    }
+    let safeMeta: Record<string, unknown> | null = null;
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      try {
+        if (Buffer.byteLength(JSON.stringify(meta), 'utf8') <= MAX_META_BYTES) {
+          safeMeta = meta;
+        }
+      } catch {
+        safeMeta = null;
+      }
+    }
+    return { messageType, meta: safeMeta };
+  }
+
+  /**
+   * Conversation title for a brand-new chat. Custom message types get a clean,
+   * human-readable title from their meta (e.g. "شرح كامل السؤال #123") instead
+   * of the truncated raw prompt makeTitle would produce.
+   */
+  private titleForNewConversation(
+    messageType: string,
+    meta: Record<string, unknown> | null,
+    message: string,
+  ): string {
+    if (messageType === 'question_explain') {
+      const label =
+        typeof meta?.optionLabel === 'string' && meta.optionLabel.trim()
+          ? meta.optionLabel.trim()
+          : 'شرح سؤال';
+      const qid = meta?.questionID;
+      return qid != null && qid !== '' ? `${label} #${qid}` : label;
+    }
+    return this.makeTitle(message);
   }
 
   private unlimitedQuota(): QuotaDecision {

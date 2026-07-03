@@ -11,6 +11,19 @@ export interface ChatRequest {
   message: string;
   scope?: ChatScope;
   /**
+   * Optional custom message type for the user turn (see hakim.prompts message
+   * registry / the client's messageTypes.js). Only affects how the message is
+   * rendered and persisted — the model still receives `message` verbatim.
+   * Unknown values are coerced to 'text' server-side.
+   */
+  messageType?: string;
+  /**
+   * Display-only metadata for the custom message type (e.g. the chosen explain
+   * option + question ref). Persisted as jsonb and echoed back on load; never
+   * sent to the model. Capped in size and only stored for known messageTypes.
+   */
+  meta?: Record<string, unknown>;
+  /**
    * Requested answer model id (see models.ts). Honoured for admins now; for
    * regular users it's ignored until HAKIM_USER_MODEL_SELECTION is enabled.
    */
