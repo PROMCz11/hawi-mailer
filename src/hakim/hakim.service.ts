@@ -732,8 +732,8 @@ export class HakimService {
 
   /**
    * Conversation title for a brand-new chat. Custom message types get a clean,
-   * human-readable title from their meta (e.g. "شرح كامل السؤال #123") instead
-   * of the truncated raw prompt makeTitle would produce.
+   * human-readable title from their meta (e.g. "شرح كامل السؤال") instead of the
+   * truncated raw prompt makeTitle would produce.
    */
   private titleForNewConversation(
     messageType: string,
@@ -741,12 +741,9 @@ export class HakimService {
     message: string,
   ): string {
     if (messageType === 'question_explain') {
-      const label =
-        typeof meta?.optionLabel === 'string' && meta.optionLabel.trim()
-          ? meta.optionLabel.trim()
-          : 'شرح سؤال';
-      const qid = meta?.questionID;
-      return qid != null && qid !== '' ? `${label} #${qid}` : label;
+      return typeof meta?.optionLabel === 'string' && meta.optionLabel.trim()
+        ? meta.optionLabel.trim()
+        : 'شرح سؤال';
     }
     return this.makeTitle(message);
   }
