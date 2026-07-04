@@ -11,7 +11,7 @@ import { Request, Response } from 'express';
 import { SupabaseService } from '../supabase/supabase.service';
 import { OpenAiService, ChatMessage } from './openai.service';
 import { RetrievalService, RetrievalScope } from './retrieval.service';
-import { QuotaService, QuotaDecision } from './quota.service';
+import { QuotaService, QuotaDecision, QuotaStatus } from './quota.service';
 import {
   HAKIM_SYSTEM_PROMPT,
   buildContextMessage,
@@ -32,6 +32,10 @@ export interface HakimAuth {
   userID: number | null;
   ephemeral: boolean;
 }
+
+export type QuotaStatusOrUnlimited =
+  | QuotaStatus
+  | { freeLimit: null; costPerUse: number; usesToday: number; remainingFree: null };
 
 interface ConversationRow {
   conversationID: number;
@@ -572,6 +576,7 @@ export class HakimService {
         type: 'done',
         conversationID: conversation?.conversationID ?? null,
         messageID: saved?.messageID ?? null,
+        newPoints: quota.mode === 'charged' ? quota.newPoints : undefined,
       });
       this.end(res);
     } catch (err: any) {
@@ -750,6 +755,14 @@ export class HakimService {
 
   private unlimitedQuota(): QuotaDecision {
     return { mode: 'free', cost: 0, usesToday: 0, freeLimit: 0 };
+  }
+
+  /** Read-only quota snapshot for the current auth — ephemeral testers are unlimited. */
+  async quotaStatus(auth: HakimAuth): Promise<QuotaStatusOrUnlimited> {
+    if (auth.ephemeral) {
+      return { freeLimit: null, costPerUse: 0, usesToday: 0, remainingFree: null };
+    }
+    return this.quota.status(auth.userID!);
   }
 
   /**
