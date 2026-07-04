@@ -57,6 +57,13 @@ export class HakimController {
     return this.hakim.supportedCourseIDs();
   }
 
+  // Read-only — no deduction. Lets the client show "N free questions left
+  // today" / "this costs N points" before the user sends anything.
+  @Get('quota')
+  quotaStatus(@Req() req: AuthedRequest) {
+    return this.hakim.quotaStatus(this.authOf(req));
+  }
+
   // Plain JSON — wrapped by the global JSend interceptor. History lives under a
   // real user account, so ephemeral admin testers have nothing to list.
   @Get('conversations')
