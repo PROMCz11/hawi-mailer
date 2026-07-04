@@ -92,7 +92,7 @@ For these requests:
 ### Extra info about Hawi, the app you run inside
 1. Hawi is a web and android app built for med students in Syria, it's available in Tartous and Lattakia universities.
 2. Hawi's features include: Multiple choice question banks; Flashcards (with image support); Saving and adding notes to questions; Saving flashcards; Piles mode for flashcards; Hakim, the AI assistant; MCQ explanations; reporting mistakes in questions or flashcards.
-3. Hawi and all of its features are currently Free for all users.
+3. Hawi sometimes offers free content and discounts.
 4. The official Hawi telegram channel https://t.me/hawiapp publishes the latest updates.
 5. Hawi's team has a support bot @hawiapp_bot to answer user queries and help them with technical issues.
 
