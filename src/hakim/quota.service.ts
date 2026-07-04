@@ -13,6 +13,13 @@ export interface QuotaDecision {
   newPoints?: number;
 }
 
+export interface QuotaStatus {
+  freeLimit: number;
+  costPerUse: number;
+  usesToday: number;
+  remainingFree: number;
+}
+
 /**
  * Usage gating for Hakim. Each user gets a configurable number of free uses per
  * day; beyond that, every use spends points via the atomic deduct_points RPC —
@@ -93,6 +100,17 @@ export class QuotaService {
       usesToday,
       freeLimit: this.freeLimit,
       newPoints,
+    };
+  }
+
+  /** Read-only snapshot of today's quota state — no deduction, safe to poll. */
+  async status(userID: number | string): Promise<QuotaStatus> {
+    const usesToday = await this.usesToday(userID);
+    return {
+      freeLimit: this.freeLimit,
+      costPerUse: this.costPerUse,
+      usesToday,
+      remainingFree: Math.max(this.freeLimit - usesToday, 0),
     };
   }
 
