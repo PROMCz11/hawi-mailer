@@ -29,7 +29,7 @@ export interface LectureStatus {
   chunk_count: number;
 }
 
-const INSERT_BATCH_SIZE = 50;
+const INSERT_BATCH_SIZE = 30;
 
 /**
  * Prepares courses for Hakim by running the lecture → chunk → embed → store
