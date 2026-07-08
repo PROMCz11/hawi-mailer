@@ -19,7 +19,11 @@ import {
   buildMcqUserPrompt,
   CourseContext,
 } from './hakim.prompts';
-import { ChatRequest, ExplainQuestionRequest } from './dto/hakim.dto';
+import {
+  ChatRequest,
+  ExplainQuestionRequest,
+  RateMessageRequest,
+} from './dto/hakim.dto';
 import { HAKIM_MODELS, HakimModelInfo } from './models';
 import { coerceId } from '../util/coerce-id';
 
@@ -463,7 +467,7 @@ export class HakimService {
     const messages = await this.supabase.select(
       'hawi_hakim_message',
       `conversationID=eq.${conversationID}` +
-        `&select=messageID,role,content,message_type,meta,context_chunk_ids,charged_points,created_at` +
+        `&select=messageID,role,content,message_type,meta,context_chunk_ids,charged_points,rating,feedback_text,created_at` +
         `&order=created_at.asc`,
     );
     // Scope is included so the client can restore the course/lecture selector
@@ -497,6 +501,48 @@ export class HakimService {
       { title: capped, updated_at: new Date().toISOString() },
     );
     return { conversationID, title: capped };
+  }
+
+  /**
+   * Like/dislike + optional feedback text on a single assistant message.
+   * `rating: null` clears both fields (toggle-off from the client). Feedback
+   * is only meaningful alongside a 'down' rating; anything else drops it so a
+   * stray client bug can't leave orphaned feedback text on a cleared/'up' row.
+   */
+  async rateMessage(
+    userID: number,
+    messageID: number,
+    body: RateMessageRequest,
+  ) {
+    const message = await this.supabase.selectOne<{
+      messageID: number;
+      userID: number;
+      role: string;
+    }>(
+      'hawi_hakim_message',
+      `messageID=eq.${messageID}&select=messageID,userID,role`,
+    );
+    if (!message) throw new NotFoundException('Message not found');
+    if (Number(message.userID) !== Number(userID)) {
+      throw new ForbiddenException('Not your message');
+    }
+    if (message.role !== 'assistant') {
+      throw new BadRequestException('Only assistant messages can be rated');
+    }
+
+    const rating = body.rating === 'up' || body.rating === 'down' ? body.rating : null;
+    const feedback =
+      rating === 'down' && typeof body.feedback === 'string'
+        ? body.feedback.trim().slice(0, 1000) || null
+        : null;
+
+    await this.supabase.update(
+      'hawi_hakim_message',
+      `messageID=eq.${messageID}`,
+      { rating, feedback_text: feedback },
+    );
+
+    return { messageID, rating, feedback };
   }
 
   async deleteConversation(userID: number, conversationID: number) {

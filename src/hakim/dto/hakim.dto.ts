@@ -41,6 +41,12 @@ export interface ChatRequest {
   history?: { role: 'user' | 'assistant'; content: string }[];
 }
 
+export interface RateMessageRequest {
+  rating: 'up' | 'down' | null;
+  /** Only meaningful when rating is 'down'. Ignored otherwise. */
+  feedback?: string | null;
+}
+
 export interface ExplainQuestionRequest {
   questionID?: number;
   body: string;

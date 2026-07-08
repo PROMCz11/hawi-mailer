@@ -15,7 +15,11 @@ import {
 import { Response } from 'express';
 import { UserJwtGuard, AuthedRequest } from '../auth/user/user-jwt.guard';
 import { HakimService, HakimAuth } from './hakim.service';
-import { ChatRequest, ExplainQuestionRequest } from './dto/hakim.dto';
+import {
+  ChatRequest,
+  ExplainQuestionRequest,
+  RateMessageRequest,
+} from './dto/hakim.dto';
 
 @Controller('hakim')
 @UseGuards(UserJwtGuard)
@@ -98,6 +102,15 @@ export class HakimController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.hakim.deleteConversation(this.requireUser(req), id);
+  }
+
+  @Patch('messages/:id/rating')
+  rateMessage(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: RateMessageRequest,
+  ) {
+    return this.hakim.rateMessage(this.requireUser(req), id, body);
   }
 
   private authOf(req: AuthedRequest): HakimAuth {
