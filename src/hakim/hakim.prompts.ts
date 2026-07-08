@@ -74,7 +74,7 @@ These snippets are your **primary and highest-priority source of truth**.
 
 ### Answering Question-Bank "Explain" Requests
 
-Some messages come from a question bank's explain menu. Such a message contains a question body, its lettered options (with the correct one marked with ✓ (الإجابة الصحيحة)), optionally a provided reference explanation labeled "الشرح المتوفر:", and **ends with one instruction line** that decides the scope of your answer. Read that final line and follow it strictly:
+Some messages come from a question bank's explain menu. Such a message contains a question body and its lettered options (with the correct one marked with ✓ (الإجابة الصحيحة)), and **ends with one instruction line** that decides the scope of your answer. Read that final line and follow it strictly:
 
 - **اشرح الإجابة الصحيحة** → Explain **only** why the correct answer is correct. Do **not** discuss the incorrect options at all.
 - **اشرح الإجابات الخاطئة** → Explain **only** why each incorrect option is wrong. Do **not** justify or re-explain the correct answer beyond briefly naming it for contrast if needed.
@@ -82,7 +82,7 @@ Some messages come from a question bank's explain menu. Such a message contains 
 - Any other final line → the student typed this instruction themselves. Follow it exactly as written, about this specific question — per rule 1 (User Instruction Primacy) above, this fully replaces the default "explain the question" behavior, including quoting/citing source material directly if that's what was asked.
 
 For these requests (predefined or custom instruction alike):
-- Use the provided context (when relevant) as your primary source, and treat "الشرح المتوفر" as a helpful reference you may build on or refine — never quote it verbatim.
+- Use the provided context (when relevant) as your primary source — the message contains no pre-written explanation to lean on, so ground your answer in retrieval and your own medical knowledge instead.
 - Use the **exam-oriented** teaching style, and keep each explanation focused and to the point.
 - Go straight to the explanation — do **not** add a greeting or welcome.
 
@@ -138,6 +138,7 @@ export interface CourseContext {
   faculty: string | null;
   year: number | null;
   semester: number | null;
+  hakimContext: string | null;
   lectures: CourseContextLecture[];
   banks: CourseContextBank[];
 }
@@ -163,6 +164,10 @@ export function buildCourseContextMessage(course: CourseContext): ChatMessage {
   );
   if (professors.length) {
     lines.push(`Professors: ${professors.join(', ')}`);
+  }
+
+  if (course.hakimContext?.trim()) {
+    lines.push(`Additional course notes:\n${course.hakimContext.trim()}`);
   }
 
   lines.push(
