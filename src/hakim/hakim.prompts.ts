@@ -131,6 +131,16 @@ export interface CourseContextBank {
   questionCount: number;
 }
 
+export type HakimFieldMode = 'disabled' | 'enabled' | 'override';
+
+export interface HakimFieldConfigEntry {
+  mode: HakimFieldMode;
+  value?: string | null;
+}
+
+/** Admin-managed per-field visibility for course context, keyed by field name. */
+export type HakimFieldConfig = Partial<Record<string, HakimFieldConfigEntry>>;
+
 export interface CourseContext {
   courseID: number;
   name: string;
@@ -139,8 +149,26 @@ export interface CourseContext {
   year: number | null;
   semester: number | null;
   hakimContext: string | null;
+  fieldConfig: HakimFieldConfig | null;
   lectures: CourseContextLecture[];
   banks: CourseContextBank[];
+}
+
+/**
+ * Resolves a field against its admin-configured mode: 'disabled' drops it
+ * entirely, 'override' substitutes the admin-supplied text verbatim, and
+ * 'enabled' (the default when unconfigured) passes the live value through.
+ */
+function resolveField(
+  fieldConfig: HakimFieldConfig | null,
+  field: string,
+  dynamicValue: string | null,
+): string | null {
+  const entry = fieldConfig?.[field];
+  const mode = entry?.mode ?? 'enabled';
+  if (mode === 'disabled') return null;
+  if (mode === 'override') return entry?.value?.trim() || null;
+  return dynamicValue;
 }
 
 /**
@@ -149,15 +177,26 @@ export interface CourseContext {
  * a course, so Hakim knows what course it's in, who teaches it, what
  * lectures are available (titles only, not content), and what question banks
  * exist — without needing this baked into the static persona prompt.
+ *
+ * `name`, `lectures`, and `banks` are admin-toggleable via
+ * `course.fieldConfig` (see /control/courses/[courseID]): disabled fields are
+ * dropped, override fields send the admin's fixed text instead of the live
+ * value. University/faculty/year/semester are always dynamic, and
+ * hakimContext is attached whenever the admin has set it (not configurable).
  */
 export function buildCourseContextMessage(course: CourseContext): ChatMessage {
-  const lines: string[] = [
-    `Course: ${course.name}`,
-    [course.university, course.faculty].filter(Boolean).join(' — ') || null,
-    course.year != null || course.semester != null
-      ? `Year ${course.year ?? '?'}, Semester ${course.semester ?? '?'}`
-      : null,
-  ].filter((l): l is string => !!l);
+  const cfg = course.fieldConfig;
+  const lines: string[] = [];
+
+  const name = resolveField(cfg, 'name', course.name);
+  if (name) lines.push(`Course: ${name}`);
+
+  const uniLine = [course.university, course.faculty].filter(Boolean).join(' — ');
+  if (uniLine) lines.push(uniLine);
+
+  if (course.year != null || course.semester != null) {
+    lines.push(`Year ${course.year ?? '?'}, Semester ${course.semester ?? '?'}`);
+  }
 
   const professors = Array.from(
     new Set(course.lectures.map((l) => l.professor).filter((p): p is string => !!p)),
@@ -170,21 +209,33 @@ export function buildCourseContextMessage(course: CourseContext): ChatMessage {
     lines.push(`Additional course notes:\n${course.hakimContext.trim()}`);
   }
 
-  lines.push(
-    course.lectures.length
-      ? `Available lectures:\n${course.lectures
-          .map((l) => `${l.number ?? '-'}. ${l.name}`)
-          .join('\n')}`
-      : 'Available lectures: none ingested yet.',
-  );
+  const lecturesMode = cfg?.lectures?.mode ?? 'enabled';
+  if (lecturesMode === 'override') {
+    const overrideText = cfg?.lectures?.value?.trim();
+    if (overrideText) lines.push(`Available lectures:\n${overrideText}`);
+  } else if (lecturesMode === 'enabled') {
+    lines.push(
+      course.lectures.length
+        ? `Available lectures:\n${course.lectures
+            .map((l) => `${l.number ?? '-'}. ${l.name}`)
+            .join('\n')}`
+        : 'Available lectures: none ingested yet.',
+    );
+  }
 
-  lines.push(
-    course.banks.length
-      ? `Available question banks:\n${course.banks
-          .map((b) => `${b.name} — ${b.questionCount} questions`)
-          .join('\n')}`
-      : 'Available question banks: none.',
-  );
+  const banksMode = cfg?.banks?.mode ?? 'enabled';
+  if (banksMode === 'override') {
+    const overrideText = cfg?.banks?.value?.trim();
+    if (overrideText) lines.push(`Available question banks:\n${overrideText}`);
+  } else if (banksMode === 'enabled') {
+    lines.push(
+      course.banks.length
+        ? `Available question banks:\n${course.banks
+            .map((b) => `${b.name} — ${b.questionCount} questions`)
+            .join('\n')}`
+        : 'Available question banks: none.',
+    );
+  }
 
   return {
     role: 'system',
