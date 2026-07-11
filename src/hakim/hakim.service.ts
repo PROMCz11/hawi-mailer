@@ -24,7 +24,7 @@ import {
   ExplainQuestionRequest,
   RateMessageRequest,
 } from './dto/hakim.dto';
-import { HAKIM_MODELS, HakimModelInfo } from './models';
+import { HAKIM_MODELS, HakimModelInfo, toPublicModel } from './models';
 import { coerceId } from '../util/coerce-id';
 
 /**
@@ -188,8 +188,8 @@ export class HakimService {
     const selectable = auth.ephemeral || this.userModelSelection;
     const thinkingSelectable = auth.ephemeral || this.userThinkingSelection;
     return {
-      models: HAKIM_MODELS,
-      default: this.openai.resolveModel().id,
+      models: HAKIM_MODELS.map((m) => toPublicModel(m, auth.ephemeral)),
+      default: toPublicModel(this.openai.resolveModel(), auth.ephemeral).id,
       selectable,
       defaultThinking: this.defaultThinking,
       thinkingSelectable,
@@ -303,7 +303,7 @@ export class HakimService {
         type: 'start',
         conversationID: conversation?.conversationID ?? null,
         ephemeral: auth.ephemeral,
-        model: model.id,
+        model: toPublicModel(model, auth.ephemeral).id,
         thinking: model.thinking && thinkingEnabled,
       });
 
@@ -401,7 +401,7 @@ export class HakimService {
         type: 'start',
         conversationID: conversation?.conversationID ?? null,
         ephemeral: auth.ephemeral,
-        model: model.id,
+        model: toPublicModel(model, auth.ephemeral).id,
         thinking: model.thinking && thinkingEnabled,
       });
 

@@ -20,6 +20,21 @@ export interface HakimModelInfo {
    * false there.
    */
   thinking: boolean;
+  /**
+   * Codename shown to regular users instead of `id`/`label`, so the real
+   * provider/model never leaves the server for non-admin traffic (see
+   * toPublicModel). Also accepted as an input alongside the real id in
+   * findModel, so older callers sending the real id keep working.
+   */
+  alias: string;
+  aliasLabel: string;
+}
+
+/** What non-admin callers get back — never the real id/label/provider. */
+export interface PublicHakimModelInfo {
+  id: string;
+  label: string;
+  thinking: boolean;
 }
 
 /** The default answerer when none is requested / selection is locked. */
@@ -35,37 +50,66 @@ export const HAKIM_MODELS: HakimModelInfo[] = [
     label: 'DeepSeek V4 Flash',
     provider: 'deepseek',
     thinking: true,
+    alias: 'fast',
+    aliasLabel: 'Fast',
   },
   {
     id: 'deepseek-v4-pro',
     label: 'DeepSeek V4 Pro',
     provider: 'deepseek',
     thinking: true,
+    alias: 'smart',
+    aliasLabel: 'Smart',
   },
   {
     id: 'gpt-5-mini',
     label: 'GPT-5 Mini',
     provider: 'openai',
     thinking: false,
+    alias: 'light',
+    aliasLabel: 'Light',
   },
   {
     id: 'gpt-5.4-mini',
     label: 'GPT-5.4 Mini',
     provider: 'openai',
     thinking: false,
+    alias: 'plus',
+    aliasLabel: 'Plus',
   },
   {
     id: 'gpt-5',
     label: 'GPT-5',
     provider: 'openai',
     thinking: false,
+    alias: 'genius',
+    aliasLabel: 'Genius',
   },
 ];
 
 const MODELS_BY_ID = new Map(HAKIM_MODELS.map((m) => [m.id, m]));
+const MODELS_BY_ALIAS = new Map(HAKIM_MODELS.map((m) => [m.alias, m]));
 
-/** Look up a model by id, or undefined if it isn't a known/allowed model. */
+/**
+ * Look up a model by its real id or its public alias, or undefined if it
+ * isn't a known/allowed model. Accepting both keeps older callers that still
+ * send the real id (e.g. hardcoded content-generation features) working.
+ */
 export function findModel(id?: string | null): HakimModelInfo | undefined {
   if (!id) return undefined;
-  return MODELS_BY_ID.get(id);
+  return MODELS_BY_ID.get(id) ?? MODELS_BY_ALIAS.get(id);
+}
+
+/**
+ * Public-facing view of a model. Admin (ephemeral) callers see the real
+ * id/label so /control/hakim stays useful for debugging; everyone else gets
+ * the codename so the real provider/model never leaves the server.
+ */
+export function toPublicModel(
+  model: HakimModelInfo,
+  revealReal: boolean,
+): PublicHakimModelInfo {
+  return revealReal
+    ? { id: model.id, label: model.label, thinking: model.thinking }
+    : { id: model.alias, label: model.aliasLabel, thinking: model.thinking };
 }
