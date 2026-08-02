@@ -203,7 +203,9 @@ export class HakimService {
    */
   private resolveModel(auth: HakimAuth, requested?: string): HakimModelInfo {
     const allowed = auth.ephemeral || this.userModelSelection;
-    return this.openai.resolveModel(allowed ? requested : undefined);
+    const resolved = this.openai.resolveModel(allowed ? requested : undefined);
+    console.log(`[Hakim] model requested for generation: ${requested ?? '(none)'} -> resolved: ${resolved.id}`);
+    return resolved;
   }
 
   /**
