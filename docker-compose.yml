@@ -2,7 +2,7 @@ services:
   hawi-mailer:
     build: .
     container_name: mailer
-    restart: always
+    restart: "no"
     ports:
       - "127.0.0.1:48291:3000"
     env_file:

@@ -1,3 +1,9 @@
+# hawi-mailer: RETIRED
+
+**Do not start this service.** It was replaced by `/home/zain/hawi-dev/hawi-backend` at the cutover on 2026-10-29. Running it conflicts with the new API's Telegram bot (two pollers on one bot token → HTTP 409, the production bot loses messages). The container `mailer` is stopped and its restart policy is `no` (owner's decision, 2026-10-29); `docker-compose.yml` says `restart: "no"` for the same reason. Kept only as a reference for the old mail, Telegram report and OTA-bundle behaviour; delete when the owner says so. How production works now: `hawi-backend/docs/runbooks/shipping-updates.md`.
+
+---
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
